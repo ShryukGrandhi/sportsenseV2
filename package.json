@@ -1,0 +1,52 @@
+{
+  "name": "sportsense-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "tsx scripts/seed.ts",
+    "sync:full": "tsx scripts/sync.ts full",
+    "sync:teams": "tsx scripts/sync.ts teams",
+    "sync:players": "tsx scripts/sync.ts players",
+    "sync:games": "tsx scripts/sync.ts games"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "^2.11.1",
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "^5.22.0",
+    "@upstash/ratelimit": "^2.0.7",
+    "@upstash/redis": "^1.36.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.3",
+    "framer-motion": "^12.24.7",
+    "lucide-react": "^0.562.0",
+    "next": "16.1.1",
+    "next-auth": "^4.24.13",
+    "prisma": "^5.22.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^3.6.0",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
