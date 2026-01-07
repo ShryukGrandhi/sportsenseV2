@@ -104,9 +104,9 @@ export interface PlayerGameStatsInfo {
 }
 
 export interface GameDetail extends GameInfo {
-  plays: PlayEvent[];
-  homeStats: PlayerStats[];
-  awayStats: PlayerStats[];
+  plays: PlayInfo[];
+  homePlayerStats: PlayerGameStatsInfo[];
+  awayPlayerStats: PlayerGameStatsInfo[];
 }
 
 export interface AIGameContext {
