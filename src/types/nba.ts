@@ -213,6 +213,16 @@ export interface NbaApiPlayer {
   height_inches: number | null;
   weight_pounds: number | null;
   team: NbaApiTeam;
+  
+  // Extended fields used in sync.ts
+  height?: string | null;
+  weight?: string | null;
+  jersey_number?: string | null;
+  country?: string | null;
+  college?: string | null;
+  draft_year?: number | null;
+  draft_round?: number | null;
+  draft_number?: number | null;
 }
 
 export interface NbaApiGame {
