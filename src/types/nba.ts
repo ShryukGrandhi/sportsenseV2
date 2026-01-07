@@ -41,6 +41,19 @@ export interface PlayEvent {
   playerId?: string;
 }
 
+export interface PlayInfo {
+  id: string;
+  period: number;
+  gameClock: string | null;
+  playType: string;
+  description: string;
+  homeScore: number;
+  awayScore: number;
+  scoreChange: number;
+  isBigPlay: boolean;
+  isClutch: boolean;
+}
+
 export interface PlayerInfo {
   id: string;
   firstName: string;
@@ -69,6 +82,24 @@ export interface PlayerStats {
   threeAttempted: number;
   ftMade: number;
   ftAttempted: number;
+  plusMinus: number;
+}
+
+export interface PlayerGameStatsInfo {
+  player: PlayerInfo;
+  minutes: string | null;
+  points: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  fgm: number;
+  fga: number;
+  fg3m: number;
+  fg3a: number;
+  ftm: number;
+  fta: number;
   plusMinus: number;
 }
 
