@@ -558,7 +558,15 @@ type UserIntent =
 function detectUserIntent(message: string): UserIntent {
   const lowerMsg = message.toLowerCase();
 
-  // Check for player comparison first
+  // Check for player comparison first - but NOT if it looks like a game query
+  const isGameQuery = lowerMsg.includes('game') || lowerMsg.includes('stats of the') ||
+    lowerMsg.includes('player stats') || lowerMsg.includes('boxscore');
+
+  // List of team abbreviations to detect team vs team (not player comparison)
+  const teamAbbrs = ['lal', 'lac', 'gsw', 'bos', 'mia', 'cle', 'ind', 'mil', 'phi', 'nyk',
+    'bkn', 'tor', 'chi', 'det', 'atl', 'cha', 'orl', 'was', 'den', 'min', 'okc', 'por',
+    'uta', 'sac', 'phx', 'dal', 'hou', 'mem', 'nop', 'sas'];
+
   const comparisonPatterns = [
     /compare\s+(.+?)\s+(?:vs?\.?|versus|and|to|with)\s+(.+)/i,
     /(.+?)\s+vs?\.?\s+(.+)/i,
@@ -569,14 +577,28 @@ function detectUserIntent(message: string): UserIntent {
     /pick\s+(.+?)\s+or\s+(.+)/i,
   ];
 
-  for (const pattern of comparisonPatterns) {
-    const match = lowerMsg.match(pattern);
-    if (match) {
-      let player1 = match[1].trim().replace(/[?!.,]/g, '');
-      let player2 = match[2].trim().replace(/[?!.,]/g, '');
-      player1 = PLAYER_NAME_MAP[player1.toLowerCase()] || player1;
-      player2 = PLAYER_NAME_MAP[player2.toLowerCase()] || player2;
-      return { type: 'comparison', player1, player2 };
+  if (!isGameQuery) {
+    for (const pattern of comparisonPatterns) {
+      const match = lowerMsg.match(pattern);
+      if (match) {
+        let player1 = match[1].trim().replace(/[?!.,]/g, '');
+        let player2 = match[2].trim().replace(/[?!.,]/g, '');
+
+        // Skip if these look like team names (e.g., "cle vs ind")
+        const isTeam1 = teamAbbrs.some(t => player1.toLowerCase() === t || player1.toLowerCase().includes(t + ' '));
+        const isTeam2 = teamAbbrs.some(t => player2.toLowerCase().startsWith(t));
+        if (isTeam1 && isTeam2) {
+          break; // Not a player comparison, it's a game matchup
+        }
+
+        player1 = PLAYER_NAME_MAP[player1.toLowerCase()] || player1;
+        player2 = PLAYER_NAME_MAP[player2.toLowerCase()] || player2;
+
+        // Only return comparison if both are recognized players
+        if (PLAYER_NAME_MAP[match[1].trim().toLowerCase()] || PLAYER_NAME_MAP[match[2].trim().toLowerCase()]) {
+          return { type: 'comparison', player1, player2 };
+        }
+      }
     }
   }
 
