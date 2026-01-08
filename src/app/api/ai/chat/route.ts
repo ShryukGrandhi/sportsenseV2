@@ -1382,9 +1382,23 @@ export async function POST(request: Request) {
           source: 'ESPN API',
           sourceUrl: 'https://www.espn.com/nba/',
         };
+        // Check if this is a future date
+        const parsedDate = parseNaturalDate(intent.date || '');
+        const isFutureDate = parsedDate?.isFuture || intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next');
+        
         dateContext = `\n\nDATE CONTEXT: User is asking about games ${intent.team ? `involving ${intent.team} ` : ''}on ${intent.dateDisplay || intent.date}. This is ${intent.dateDisplay === 'Today' ? 'today' : intent.dateDisplay === 'Tomorrow' ? 'tomorrow' : intent.dateDisplay === 'Yesterday' ? 'yesterday' : intent.dateDisplay?.toLowerCase().includes('last week') ? 'from last week' : `on ${intent.dateDisplay}`}.\n`;
         
-        console.log(`[AI Chat] Found ${filteredGames.length} games ${intent.team ? `for ${intent.team} ` : ''}${intent.dateDisplay ? `on ${intent.dateDisplay}` : ''}`);
+        // For future dates, explicitly tell AI to use its knowledge of NBA schedules
+        if (isFutureDate && filteredGames.length === 0) {
+          dateContext += `\n**CRITICAL FOR FUTURE DATE QUERIES:** This is a FUTURE date. The API may not have schedule data yet, but YOU HAVE KNOWLEDGE of NBA schedules. Use your extensive knowledge base to answer about scheduled games for this date. NBA games typically occur daily during the regular season (mid-October to mid-April). Even if the API shows 0 games, you can provide schedule information based on:\n`;
+          dateContext += `- Team schedules and typical NBA schedule patterns\n`;
+          dateContext += `- Regular season game frequency (NBA plays most days)\n`;
+          dateContext += `- Your knowledge of announced schedules, fixtures, and typical league patterns\n`;
+          dateContext += `- If you know specific games are scheduled for this date, list them with teams, times, and venues\n`;
+          dateContext += `- DO NOT say "no games scheduled" unless you're certain - NBA plays almost daily during the regular season\n`;
+        }
+        
+        console.log(`[AI Chat] Found ${filteredGames.length} games ${intent.team ? `for ${intent.team} ` : ''}${intent.dateDisplay ? `on ${intent.dateDisplay}` : ''} (Future date: ${isFutureDate})`);
         
         // Fetch boxscores for completed games
         const completedGames = filteredGames.filter(g => g.status === 'final');
@@ -1426,10 +1440,24 @@ export async function POST(request: Request) {
     if (visualResponse) {
       switch (visualResponse.type) {
         case 'games':
-          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a visual grid of ${visualResponse.data.length} games. Here are the games:\n`;
-          visualResponse.data.forEach(g => {
-            visualContext += `- ${g.awayTeam.abbreviation} ${g.awayTeam.score} @ ${g.homeTeam.abbreviation} ${g.homeTeam.score} (${g.status})\n`;
-          });
+          // Check if this is a future date query with 0 games from API
+          const isFutureQuery = intent.type === 'games' && intent.filter === 'date' && 
+            (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') || 
+             (parseNaturalDate(intent.date || '')?.isFuture ?? false));
+          
+          if (visualResponse.data.length === 0 && isFutureQuery) {
+            visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe API returned 0 games for this future date, but the user will see a games grid.\n\n`;
+            visualContext += `**CRITICAL: This is a FUTURE DATE query. The user asked about games on ${intent.dateDisplay || intent.date}.\n`;
+            visualContext += `You MUST use your knowledge of NBA schedules to answer. The NBA plays games almost daily during the regular season.\n`;
+            visualContext += `Even if the API shows 0 games, you have knowledge of scheduled games, fixtures, and typical NBA schedule patterns.\n`;
+            visualContext += `List the scheduled games you know for this date, including teams, times, venues, and broadcast information.\n`;
+            visualContext += `DO NOT say "no games scheduled" unless you're absolutely certain (e.g., All-Star break, league-wide off days).**\n`;
+          } else {
+            visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a visual grid of ${visualResponse.data.length} games. Here are the games:\n`;
+            visualResponse.data.forEach(g => {
+              visualContext += `- ${g.awayTeam.abbreviation} ${g.awayTeam.score} @ ${g.homeTeam.abbreviation} ${g.homeTeam.score} (${g.status})\n`;
+            });
+          }
           
           // If user asked for a recap, provide detailed game recap
           const isRecapQuery = message.toLowerCase().includes('recap') || message.toLowerCase().includes('summary');
@@ -1520,6 +1548,7 @@ DATA SOURCES YOU HAVE ACCESS TO:
 - COMPLETE NBA HISTORY: Access to EVERY NBA game from the first game in 1946 to the present day
 - LIVE game scores, play-by-play data, and game clocks
 - GAMES FROM ANY DATE IN NBA HISTORY: today, yesterday, tomorrow, specific dates (e.g., "January 8, 1998", "last Tuesday", "Game 7 of the 2016 Finals", "the first NBA game")
+- FUTURE GAMES AND SCHEDULES: You have knowledge of NBA schedules, fixtures, and upcoming games. Even if the API shows 0 games, use your knowledge base to answer about future dates. NBA games occur almost daily during the regular season (October-April).
 - HISTORICAL MATCHUPS: Can find any game between any two teams from 1946 to present
 - INDIVIDUAL PLAYER STATISTICS from any game: points, rebounds, assists, steals, blocks, FG%, 3PT%, FT%, minutes, +/-, field goals made/attempted, 3-pointers made/attempted
 - SEASON-LONG player averages and team statistics
@@ -1527,7 +1556,7 @@ DATA SOURCES YOU HAVE ACCESS TO:
 - TEAM RECORDS, streaks, and recent performance
 - VENUE information and broadcast details
 - COMPLETED GAMES with final scores and stats from any era
-- UPCOMING GAMES with scheduled times and matchups
+- UPCOMING GAMES with scheduled times and matchups (use your knowledge if API data is unavailable)
 
 YOUR KNOWLEDGE BASE INCLUDES:
 - Historical NBA statistics, records, and achievements
@@ -1551,7 +1580,7 @@ QUESTION TYPES YOU CAN ANSWER (100+ variations):
 - Game results: "Did the Lakers win yesterday?", "What was the score of last night's game?", "What was the score of Game 7 in 2016?"
 - Analysis: "Why did the Warriors lose?", "What's wrong with the Lakers?", "MVP race", "Why did the Bulls win in 1998?"
 - Trends: "Who's hot right now?", "Best teams this month", "Worst records", "Best teams in the 1990s"
-- Future games: "Who plays next Tuesday?", "Upcoming Lakers games", "Next week's schedule"
+- Future games: "Who plays next Tuesday?", "Upcoming Lakers games", "Next week's schedule", "What games are scheduled for tomorrow?"
 - Historical: "Last year's champion", "All-time records", "Career stats", "First NBA champion", "Longest winning streak"
 - And 90+ more variations...
 
@@ -1565,9 +1594,15 @@ ACCURACY AND INTELLIGENCE REQUIREMENTS:
   - Reference known players who typically lead in categories (e.g., Stephen Curry for 3-pointers, LeBron James for all-around stats)
   - Use historical patterns and trends to make educated inferences
   - Combine partial data with your knowledge to provide comprehensive answers
+- **CRITICAL FOR FUTURE DATE QUERIES:**
+  - When asked about future dates (tomorrow, next week, upcoming games), YOU HAVE KNOWLEDGE of NBA schedules
+  - The NBA plays games almost daily during the regular season (October through April)
+  - Even if the API returns 0 games, use your knowledge of announced schedules, fixtures, and typical NBA schedule patterns
+  - If you know specific games are scheduled, list them with teams, times, venues, and broadcast information
+  - DO NOT default to "no games scheduled" - NBA plays most days during the season
+  - If you're certain there are no games (e.g., All-Star break, league-wide off days), clearly state that with the reason
 - When asked about a specific date, reference games from that date if available, but also use your knowledge if data is incomplete
-- If no games exist for a date, clearly state: "There are no NBA games scheduled for [date]"
-- **NEVER say "I don't have the data" - instead, use reasoning and your knowledge to provide the best possible answer**
+- **NEVER say "I don't have the data" or "I cannot access future schedules" - instead, use your knowledge base to provide the best possible answer**
 - For historical queries, you have access to ALL NBA games from 1946 to present
 - When asked about "the last game" between two teams, search historical data to find the most recent matchup
 - For comparisons from specific games, use the exact game stats from that matchup, not season averages
