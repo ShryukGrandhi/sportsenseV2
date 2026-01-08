@@ -205,7 +205,7 @@ export default function ChatPage() {
         line = line.replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>');
         // Bullet points
         if (line.startsWith('• ') || line.startsWith('- ')) {
-          return `<div class="flex gap-2 my-1"><span class="text-orange-400">•</span><span>${line.slice(2)}</span></div>`;
+          return `<div class="flex gap-2 my-1"><span class="text-orange-500">•</span><span>${line.slice(2)}</span></div>`;
         }
         return line;
       })
@@ -213,17 +213,17 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-900 to-black">
+    <div className="min-h-screen">
       <Header />
       
       <main className="container mx-auto px-4 py-8">
         {/* Hero Section - Meta Manus Style - Only show when no conversation */}
         {messages.length <= 1 && (
           <div className="max-w-4xl mx-auto text-center space-y-8 py-12 animate-fade-in">
-            <h1 className="text-5xl md:text-6xl font-serif text-white/90 min-h-[4rem] flex items-center justify-center">
-              <span>{typedText || '\u00A0'}</span>
+            <h1 className="text-5xl md:text-7xl font-black min-h-[4rem] flex items-center justify-center">
+              <span className={typedText ? 'gradient-text' : 'text-white/90'}>{typedText || '\u00A0'}</span>
               <span className={cn(
-                "transition-opacity duration-300 ml-1 text-6xl md:text-7xl",
+                "transition-opacity duration-300 ml-1 text-6xl md:text-7xl text-white/90",
                 showCursor ? "opacity-100" : "opacity-0"
               )}>|</span>
             </h1>
@@ -240,7 +240,7 @@ export default function ChatPage() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Assign a task or ask anything"
-                className="w-full bg-white rounded-2xl px-14 py-6 pr-16 text-gray-900 text-lg placeholder:text-gray-400 resize-none focus:outline-none focus:ring-4 focus:ring-blue-500/30 max-h-32 shadow-2xl"
+                className="w-full glass rounded-2xl px-14 py-6 pr-16 text-white text-lg placeholder:text-white/40 resize-none focus:outline-none focus:ring-4 focus:ring-orange-500/30 max-h-32 shadow-2xl border border-white/10"
                 rows={1}
                 disabled={isLoading}
               />
@@ -250,8 +250,8 @@ export default function ChatPage() {
                 className={cn(
                   "absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all",
                   input.trim() && !isLoading
-                    ? "bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
-                    : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    ? "bg-gradient-to-br from-orange-500 to-blue-500 hover:from-orange-600 hover:to-blue-600 text-white shadow-lg shadow-orange-500/20"
+                    : "bg-white/10 text-white/30 cursor-not-allowed"
                 )}
               >
                 {isLoading ? (
@@ -286,15 +286,15 @@ export default function ChatPage() {
                     className={cn(
                       "relative px-6 py-4 rounded-2xl",
                       message.role === 'user'
-                        ? "bg-blue-600 text-white rounded-br-md ml-auto shadow-lg"
-                        : "bg-white/10 text-white/90 rounded-bl-md backdrop-blur-sm border border-white/10"
+                        ? "bg-gradient-to-br from-orange-500 to-blue-500 text-white rounded-br-md ml-auto shadow-lg shadow-orange-500/20"
+                        : "glass text-white/90 rounded-bl-md border border-white/10"
                     )}
                   >
                     {message.role === 'assistant' && (
                       <div className="flex items-center gap-2 mb-3 pb-3 border-b border-white/10">
                         <div className={cn(
                           "p-1.5 rounded-full bg-gradient-to-br",
-                          currentPersonality?.color || "from-blue-500 to-cyan-500"
+                          currentPersonality?.color || "from-orange-500 to-blue-500"
                         )}>
                           <Sparkles className="w-3 h-3 text-white" />
                         </div>
@@ -302,7 +302,7 @@ export default function ChatPage() {
                           {currentPersonality?.name || 'Playmaker'}
                         </span>
                         {message.intent && message.intent !== 'general' && (
-                          <span className="ml-2 px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 text-xs font-medium">
+                          <span className="ml-2 px-2 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 text-xs font-medium">
                             {message.intent}
                           </span>
                         )}
@@ -335,14 +335,14 @@ export default function ChatPage() {
             {/* Typing indicator */}
             {isLoading && (
               <div className="flex justify-start animate-fade-in">
-                <div className="bg-white/10 rounded-2xl rounded-bl-md px-6 py-4 backdrop-blur-sm border border-white/10">
+                <div className="glass rounded-2xl rounded-bl-md px-6 py-4 border border-white/10">
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1">
-                      <span className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      <span className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                     </div>
-                    <span className="text-xs text-white/40">Fetching live data...</span>
+                    <span className="text-xs text-white/60">Fetching live data...</span>
                   </div>
                 </div>
               </div>
@@ -352,7 +352,7 @@ export default function ChatPage() {
             </div>
 
             {/* Input at bottom when in conversation */}
-            <form onSubmit={handleSubmit} className="sticky bottom-0 bg-black/80 backdrop-blur-xl rounded-2xl p-4 border border-white/10 mt-6 z-30 shadow-2xl">
+            <form onSubmit={handleSubmit} className="sticky bottom-0 glass-dark rounded-2xl p-4 border border-white/10 mt-6 z-30 shadow-2xl">
               <div className="flex items-end gap-3">
                 <div className="flex-1 relative">
                   <textarea
@@ -361,7 +361,7 @@ export default function ChatPage() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask about games, players, stats..."
-                    className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 pr-12 text-white text-sm placeholder:text-white/40 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 max-h-32"
+                    className="w-full glass border border-white/20 rounded-xl px-4 py-3 pr-12 text-white text-sm placeholder:text-white/40 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 max-h-32"
                     rows={1}
                     disabled={isLoading}
                   />
@@ -371,7 +371,7 @@ export default function ChatPage() {
                     className={cn(
                       "absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all",
                       input.trim() && !isLoading
-                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
+                        ? "bg-gradient-to-br from-orange-500 to-blue-500 hover:from-orange-600 hover:to-blue-600 text-white shadow-lg shadow-orange-500/20"
                         : "bg-white/10 text-white/30 cursor-not-allowed"
                     )}
                   >
@@ -390,20 +390,20 @@ export default function ChatPage() {
         {/* Suggested Prompts - When no conversation */}
         {messages.length <= 1 && (
           <div className="max-w-4xl mx-auto mt-12 py-8 animate-fade-in">
-            <p className="text-center text-white/50 text-sm mb-6">Try asking:</p>
+            <p className="text-center text-white/60 text-sm mb-6">Try asking:</p>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {SUGGESTED_PROMPTS.map((prompt) => (
                 <button
                   key={prompt.text}
                   onClick={() => handleSuggestionClick(prompt.text)}
-                  className="flex items-start gap-4 p-6 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all text-left group"
+                  className="flex items-start gap-4 p-6 rounded-xl glass card-hover border border-white/10 hover:border-orange-500/30 transition-all text-left group"
                 >
                   <div className="p-3 rounded-lg bg-gradient-to-br from-orange-500/20 to-blue-500/20 group-hover:from-orange-500/30 group-hover:to-blue-500/30 transition-colors">
                     <prompt.icon className="w-5 h-5 text-orange-400" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-white font-medium mb-1">{prompt.text}</h3>
-                    <p className="text-white/40 text-xs">Click to get started</p>
+                    <h3 className="text-white font-medium mb-1 group-hover:text-orange-400 transition-colors">{prompt.text}</h3>
+                    <p className="text-white/50 text-xs">Click to get started</p>
                   </div>
                 </button>
               ))}
@@ -414,7 +414,7 @@ export default function ChatPage() {
 
       {/* Settings Panel - Floating */}
       {showSettings && (
-        <div className="fixed bottom-20 right-4 w-80 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-6 z-50 animate-slide-up">
+        <div className="fixed bottom-20 right-4 w-80 glass-dark border border-white/10 rounded-2xl shadow-2xl p-6 z-50 animate-slide-up">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-white font-semibold">Chat Settings</h3>
             <button
@@ -436,8 +436,8 @@ export default function ChatPage() {
                     className={cn(
                       "flex flex-col items-center gap-2 p-3 rounded-lg transition-all",
                       settings.personality === p.id
-                        ? `bg-gradient-to-br ${p.color} text-white shadow-lg`
-                        : "bg-white/5 text-white/60 hover:bg-white/10"
+                        ? `bg-gradient-to-br ${p.color} text-white shadow-lg shadow-orange-500/20`
+                        : "glass text-white/60 hover:bg-white/10 border border-white/10"
                     )}
                     title={p.description}
                   >
@@ -458,8 +458,8 @@ export default function ChatPage() {
                     className={cn(
                       "flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize",
                       settings.length === len
-                        ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                        : "bg-white/5 text-white/60 hover:bg-white/10"
+                        ? "bg-gradient-to-r from-orange-500/20 to-blue-500/20 text-orange-400 border border-orange-500/30"
+                        : "glass text-white/60 hover:bg-white/10 border border-white/10"
                     )}
                   >
                     {len}
@@ -477,8 +477,8 @@ export default function ChatPage() {
         className={cn(
           "fixed bottom-6 right-6 p-4 rounded-full transition-all shadow-lg z-40",
           showSettings 
-            ? "bg-blue-600 text-white" 
-            : "bg-white/10 hover:bg-white/20 text-white/70 hover:text-white backdrop-blur-sm border border-white/10"
+            ? "bg-gradient-to-br from-orange-500 to-blue-500 text-white shadow-orange-500/20" 
+            : "glass hover:bg-white/20 text-white/70 hover:text-white border border-white/10"
         )}
       >
         <Settings className="w-5 h-5" />
