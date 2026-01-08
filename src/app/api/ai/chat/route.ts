@@ -4,8 +4,8 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { logger } from '@/lib/logger';
-import { fetchAllLiveData, buildAIContext, fetchStandings, fetchAllBoxscores, LiveGameData } from '@/services/nba/live-data';
-import { fetchPlayerStats } from '@/services/nba/espn-api';
+import { fetchAllLiveData, buildAIContext, fetchStandings, fetchAllBoxscores, LiveGameData, fetchScoresByDate, fetchGameBoxscore } from '@/services/nba/live-data';
+import { fetchPlayerStats, fetchGameDetail } from '@/services/nba/espn-api';
 
 // ============================================
 // TYPE DEFINITIONS FOR VISUAL RESPONSES
@@ -132,6 +132,7 @@ interface PlayerComparisonVisual {
 type AIVisualResponse =
   | { type: 'games'; data: VisualGameData[] }
   | { type: 'game'; data: VisualGameData }
+  | { type: 'game_recap'; data: VisualGameData & { boxscore?: any; topPerformers?: any } }
   | { type: 'player'; data: VisualPlayerData }
   | { type: 'players'; data: VisualPlayerData[] }
   | { type: 'standings'; data: VisualStandingsData[] }
@@ -440,8 +441,113 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 // INTENT DETECTION
 // ============================================
 
+// Current date for context (updated on each request)
+function getCurrentDateStr(): string {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+
+// Parse date from user message - supports various formats
+function parseDateFromMessage(message: string): { date: Date; dateStr: string } | null {
+  const lowerMsg = message.toLowerCase();
+  const today = new Date();
+
+  // Yesterday
+  if (lowerMsg.includes('yesterday')) {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return {
+      date: yesterday,
+      dateStr: formatDateForESPN(yesterday)
+    };
+  }
+
+  // Last night / last game
+  if (lowerMsg.includes('last night') || lowerMsg.includes('last game')) {
+    const lastNight = new Date(today);
+    lastNight.setDate(lastNight.getDate() - 1);
+    return {
+      date: lastNight,
+      dateStr: formatDateForESPN(lastNight)
+    };
+  }
+
+  // X days ago
+  const daysAgoMatch = lowerMsg.match(/(\d+)\s*days?\s*ago/);
+  if (daysAgoMatch) {
+    const daysAgo = parseInt(daysAgoMatch[1]);
+    const pastDate = new Date(today);
+    pastDate.setDate(pastDate.getDate() - daysAgo);
+    return {
+      date: pastDate,
+      dateStr: formatDateForESPN(pastDate)
+    };
+  }
+
+  // Specific date patterns: January 5, Jan 5, 1/5/2026, etc.
+  const datePatterns = [
+    // Month Day, Year (January 5, 2026)
+    /(?:on\s+)?(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?/i,
+    // MM/DD/YYYY or MM-DD-YYYY
+    /(?:on\s+)?(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/,
+    // Month Day (January 5) - assume current/previous year
+    /(?:on\s+)?(\w+)\s+(\d{1,2})(?:st|nd|rd|th)?(?!\d)/i,
+  ];
+
+  for (const pattern of datePatterns) {
+    const match = message.match(pattern);
+    if (match) {
+      try {
+        let dateStr: string;
+        if (match[0].includes('/') || match[0].includes('-')) {
+          // Numeric format
+          const month = parseInt(match[1]);
+          const day = parseInt(match[2]);
+          let year = match[3] ? parseInt(match[3]) : today.getFullYear();
+          if (year < 100) year += 2000;
+          dateStr = `${year}${month.toString().padStart(2, '0')}${day.toString().padStart(2, '0')}`;
+          return { date: new Date(year, month - 1, day), dateStr };
+        } else {
+          // Text format (January 5, 2026)
+          const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+            'july', 'august', 'september', 'october', 'november', 'december'];
+          const monthShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
+            'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+          const monthStr = match[1].toLowerCase();
+          let month = monthNames.indexOf(monthStr);
+          if (month === -1) month = monthShort.indexOf(monthStr.substring(0, 3));
+          if (month === -1) continue;
+
+          const day = parseInt(match[2]);
+          let year = match[3] ? parseInt(match[3]) : today.getFullYear();
+
+          const parsed = new Date(year, month, day);
+          return { date: parsed, dateStr: formatDateForESPN(parsed) };
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatDateForESPN(date: Date): string {
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}${month}${day}`;
+}
+
 type UserIntent =
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team'; team?: string }
+  | { type: 'game_recap'; team: string; date?: string; dateStr?: string }
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
   | { type: 'player'; name: string }
   | { type: 'comparison'; player1: string; player2: string }
@@ -541,6 +647,28 @@ function detectUserIntent(message: string): UserIntent {
       if (twoWords && levenshteinDistance(twoWords, nickname) <= 2) {
         console.log(`[Intent] Fuzzy matched phrase "${twoWords}" to "${fullName}"`);
         return { type: 'player', name: fullName };
+      }
+    }
+  }
+
+  // Check for game recap requests (specific game on specific date)
+  // This should come BEFORE general game checks
+  const recapKeywords = ['recap', 'summary', 'how did', 'what happened', 'result', 'highlights'];
+  const hasRecapKeyword = recapKeywords.some(kw => lowerMsg.includes(kw));
+  const parsedDate = parseDateFromMessage(message);
+
+  // If there's a date reference and a team mention, it's likely a game recap request
+  if ((hasRecapKeyword || parsedDate) && (lowerMsg.includes('game') || hasRecapKeyword)) {
+    for (const [key, team] of Object.entries(NBA_TEAMS)) {
+      if (lowerMsg.includes(key)) {
+        const dateInfo = parsedDate || { dateStr: formatDateForESPN(new Date()), date: new Date() };
+        console.log(`[Intent] Game recap detected for ${team.name} on ${dateInfo.dateStr}`);
+        return {
+          type: 'game_recap',
+          team: team.name,
+          date: dateInfo.date.toDateString(),
+          dateStr: dateInfo.dateStr
+        };
       }
     }
   }
@@ -1172,9 +1300,87 @@ export async function POST(request: Request) {
 
     // Generate visual response based on intent
     let visualResponse: AIVisualResponse | null = null;
+    let historicalGameContext = '';
+
     if (requestVisuals && intent.type !== 'general') {
       console.log('[AI Chat] Generating visual response for intent:', intent.type);
-      visualResponse = await generateVisualResponse(intent, liveData);
+
+      // Special handling for game_recap - fetch historical data
+      if (intent.type === 'game_recap' && intent.dateStr) {
+        console.log(`[AI Chat] Fetching historical game for ${intent.team} on ${intent.dateStr}`);
+        try {
+          const historicalData = await fetchScoresByDate(intent.dateStr);
+          console.log(`[AI Chat] Found ${historicalData.games.length} games on ${intent.dateStr}`);
+
+          // Find the team's game
+          const teamGame = historicalData.games.find(g =>
+            g.homeTeam.name.toLowerCase().includes(intent.team.toLowerCase().split(' ').pop() || '') ||
+            g.awayTeam.name.toLowerCase().includes(intent.team.toLowerCase().split(' ').pop() || '')
+          );
+
+          if (teamGame) {
+            console.log(`[AI Chat] Found game: ${teamGame.awayTeam.name} @ ${teamGame.homeTeam.name}`);
+
+            // Fetch detailed boxscore for this game
+            const boxscore = await fetchGameBoxscore(teamGame.gameId);
+
+            const getTeamLogo = (abbr: string) =>
+              `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
+
+            visualResponse = {
+              type: 'game_recap',
+              data: {
+                gameId: teamGame.gameId,
+                homeTeam: {
+                  name: teamGame.homeTeam.name,
+                  abbreviation: teamGame.homeTeam.abbreviation,
+                  logo: getTeamLogo(teamGame.homeTeam.abbreviation),
+                  score: teamGame.homeTeam.score,
+                  record: teamGame.homeTeam.record,
+                },
+                awayTeam: {
+                  name: teamGame.awayTeam.name,
+                  abbreviation: teamGame.awayTeam.abbreviation,
+                  logo: getTeamLogo(teamGame.awayTeam.abbreviation),
+                  score: teamGame.awayTeam.score,
+                  record: teamGame.awayTeam.record,
+                },
+                status: teamGame.status,
+                period: teamGame.period,
+                venue: teamGame.venue,
+                boxscore: boxscore,
+              }
+            };
+
+            // Build context for AI with detailed game info
+            historicalGameContext = `\n\n===== HISTORICAL GAME DATA (${intent.date}) =====\n`;
+            historicalGameContext += `${teamGame.awayTeam.name} ${teamGame.awayTeam.score} @ ${teamGame.homeTeam.name} ${teamGame.homeTeam.score} (${teamGame.status})\n`;
+            historicalGameContext += `Venue: ${teamGame.venue || 'Unknown'}\n`;
+
+            if (boxscore) {
+              historicalGameContext += `\n--- TOP PERFORMERS ---\n`;
+              historicalGameContext += `${teamGame.homeTeam.abbreviation}:\n`;
+              boxscore.homePlayers.slice(0, 3).forEach((p: any) => {
+                historicalGameContext += `  ${p.name}: ${p.points}pts, ${p.rebounds}reb, ${p.assists}ast\n`;
+              });
+              historicalGameContext += `${teamGame.awayTeam.abbreviation}:\n`;
+              boxscore.awayPlayers.slice(0, 3).forEach((p: any) => {
+                historicalGameContext += `  ${p.name}: ${p.points}pts, ${p.rebounds}reb, ${p.assists}ast\n`;
+              });
+            }
+            historicalGameContext += `===== END HISTORICAL DATA =====`;
+          } else {
+            console.log(`[AI Chat] No game found for ${intent.team} on ${intent.dateStr}`);
+            // Provide context that no game was found
+            historicalGameContext = `\nNo game found for ${intent.team} on ${intent.date}. Available games on that date: ${historicalData.games.map(g => `${g.awayTeam.abbreviation} @ ${g.homeTeam.abbreviation}`).join(', ') || 'No games found'}`;
+          }
+        } catch (histError) {
+          console.error('[AI Chat] Failed to fetch historical game:', histError);
+          historicalGameContext = `\nCould not retrieve historical game data for ${intent.date}. ESPN may not have data for that date.`;
+        }
+      } else {
+        visualResponse = await generateVisualResponse(intent, liveData);
+      }
       console.log('[AI Chat] Visual response generated:', !!visualResponse);
     }
 
@@ -1188,6 +1394,10 @@ export async function POST(request: Request) {
             visualContext += `- ${g.awayTeam.abbreviation} ${g.awayTeam.score} @ ${g.homeTeam.abbreviation} ${g.homeTeam.score} (${g.status})\n`;
           });
           visualContext += '\nProvide commentary on these games. DO NOT list the scores again - the user can see them in the visual.';
+          break;
+        case 'game_recap':
+          const recap = visualResponse.data;
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a game recap card showing ${recap.awayTeam.name} ${recap.awayTeam.score} @ ${recap.homeTeam.name} ${recap.homeTeam.score}.\nProvide a narrative recap of the game - key moments, standout performances, what the score doesn't tell you. Be insightful, not just stats.`;
           break;
         case 'standings':
           visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see standings tables. Provide analysis and insights about the standings. DO NOT list the rankings again.`;
@@ -1231,34 +1441,42 @@ export async function POST(request: Request) {
 
 ${lengthSettings.instruction}
 
-You are an expert NBA analyst with access to REAL-TIME data. CRITICAL RULES:
+CURRENT DATE: ${getCurrentDateStr()}
+
+You are an expert NBA analyst with access to REAL-TIME and HISTORICAL NBA data. CRITICAL RULES:
 
 1. UNDERSTAND THE QUESTION FIRST - Figure out what the user actually wants:
    - If they mention a player name (even misspelled), give info about THAT PLAYER
-   - If they ask about games/scores, show today's games
-   - If they ask general questions, answer directly
-   - DO NOT default to showing today's games unless specifically asked
+   - If they ask about games/scores, check if they specified a DATE
+   - If they ask about "yesterday" or a specific date, use the HISTORICAL DATA provided
+   - DO NOT default to today's games unless specifically asked about TODAY
 
-2. BE DIRECT AND FACT-FOCUSED:
+2. DATE AWARENESS:
+   - Today is ${getCurrentDateStr()}
+   - If the user asks about "yesterday", that's the day before today
+   - If they ask about a specific date (e.g., "January 5, 2026"), use historical data
+   - You CAN access historical games - just tell them what you found
+
+3. BE DIRECT AND FACT-FOCUSED:
    - NEVER start with "Great question!", "That's a good one!", or similar filler
    - Lead with the most important fact or stat
-   - Include specific numbers (PPG, RPG, APG, FG%, etc.)
-   - Every sentence should provide VALUE
+   - For game recaps, tell the STORY of the game, not just stats
+   - Include key moments, momentum shifts, standout performances
 
-3. HANDLE MISSPELLINGS:
-   - If a player name is misspelled, figure out who they mean and respond about that player
-   - Examples: "lebrun" = LeBron James, "gianis" = Giannis, "steph currey" = Stephen Curry
-
-4. STATS-RICH RESPONSES:
-   - When asked about players, USE the individual player stats (points, rebounds, assists, steals, blocks, FG%, 3PT%, minutes)
-   - Season averages are more important than single-game stats unless asked about today
+4. GAME RECAPS should include:
+   - Final score and winner
+   - Top performers with their stats
+   - Key plays or turning points
+   - Context (win streak, rivalry, playoff implications)
+   - What the numbers DON'T tell you
 
 5. VISUAL-AWARE:
-   - If showing a visual card, DON'T repeat the raw stats - provide ANALYSIS and CONTEXT instead
+   - If showing a visual card, DON'T repeat the raw stats - provide ANALYSIS and NARRATIVE
 
-${visualContext ? 'IMPORTANT: A visual card is being shown to the user. Add analysis and context, not repetition of visible stats.' : ''}
+${visualContext ? 'IMPORTANT: A visual card is being shown to the user. Add narrative and context, not repetition of visible stats.' : ''}
+${historicalGameContext}
 
-===== LIVE DATA =====
+===== LIVE DATA (Today's Games) =====
 ${liveContext}
 ===== END DATA =====
 ${gameSpecificContext}
@@ -1266,7 +1484,7 @@ ${visualContext}
 
 USER: ${message}
 
-Respond directly to what the user asked. Lead with facts. Be concise but informative:`;
+Respond directly to what the user asked. For game recaps, tell the story. Lead with facts. Be concise but informative:`;
 
     // Try models in order until one works
     let result;
