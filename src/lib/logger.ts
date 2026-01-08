@@ -116,7 +116,10 @@ let logDirReady: Promise<void> | null = null;
 
 async function ensureLogDir(): Promise<void> {
   if (!logDirReady) {
-    logDirReady = fs.mkdir(LOG_DIR, { recursive: true }).catch(() => {});
+    logDirReady = fs
+      .mkdir(LOG_DIR, { recursive: true })
+      .then(() => undefined)
+      .catch(() => undefined);
   }
   await logDirReady;
 }
@@ -192,5 +195,4 @@ export const logger = {
 };
 
 export default logger;
-
 

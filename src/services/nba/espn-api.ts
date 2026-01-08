@@ -414,7 +414,11 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
     }
 
     // Parse player stats - handles ESPN's nested boxscore structure
-    const parsePlayerStats = (players: any[], teamId: string): ESPNPlayerStats[] => {
+    const parsePlayerStats = (
+      players: any[],
+      teamId: string,
+      statLabels?: string[]
+    ): ESPNPlayerStats[] => {
       if (!players || !Array.isArray(players)) {
         logger.info('No players array to parse', { teamId });
         return [];
@@ -435,10 +439,17 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
         });
       }
       
-      const parsed = players.map((p: any) => {
+      const normalizedLabels = (statLabels || []).map((label) => label.toLowerCase().trim());
+
+      const parsed = players.map((p: any, index: number) => {
         // ESPN boxscore structure: stats are directly on the player object as an array
         // The labels come from the parent statistics object
         const stats = p.stats || p.statistics?.[0]?.stats || [];
+        const getStatByLabel = (label: string, defaultVal = '0'): string => {
+          const idx = normalizedLabels.indexOf(label.toLowerCase().trim());
+          if (idx === -1 || !Array.isArray(stats) || idx >= stats.length) return defaultVal;
+          return String(stats[idx] ?? defaultVal);
+        };
         
         // Log raw stats for first player
         if (players.indexOf(p) === 0) {
@@ -464,24 +475,28 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
           return [parseInt(parts[0]) || 0, parseInt(parts[1]) || 0];
         };
         
-        const minutes = getStatByIndex(0);
-        const [fgm, fga] = parseShooting(getStatByIndex(1));
-        const [fg3m, fg3a] = parseShooting(getStatByIndex(2));
-        const [ftm, fta] = parseShooting(getStatByIndex(3));
-        const rebounds = parseInt(getStatByIndex(6)) || 0;
-        const assists = parseInt(getStatByIndex(7)) || 0;
-        const steals = parseInt(getStatByIndex(8)) || 0;
-        const blocks = parseInt(getStatByIndex(9)) || 0;
-        const turnovers = parseInt(getStatByIndex(10)) || 0;
-        const plusMinus = getStatByIndex(12);
-        const points = parseInt(getStatByIndex(13)) || 0;
+        const useLabels = normalizedLabels.length > 0 && Array.isArray(stats);
+
+        const minutes = useLabels ? getStatByLabel('min') : getStatByIndex(0);
+        const [fgm, fga] = parseShooting(useLabels ? getStatByLabel('fg') : getStatByIndex(1));
+        const [fg3m, fg3a] = parseShooting(
+          useLabels ? getStatByLabel('3pt') : getStatByIndex(2)
+        );
+        const [ftm, fta] = parseShooting(useLabels ? getStatByLabel('ft') : getStatByIndex(3));
+        const rebounds = parseInt(useLabels ? getStatByLabel('reb') : getStatByIndex(6)) || 0;
+        const assists = parseInt(useLabels ? getStatByLabel('ast') : getStatByIndex(7)) || 0;
+        const steals = parseInt(useLabels ? getStatByLabel('stl') : getStatByIndex(8)) || 0;
+        const blocks = parseInt(useLabels ? getStatByLabel('blk') : getStatByIndex(9)) || 0;
+        const turnovers = parseInt(useLabels ? getStatByLabel('to') : getStatByIndex(10)) || 0;
+        const plusMinus = useLabels ? getStatByLabel('+/-') : getStatByIndex(12);
+        const points = parseInt(useLabels ? getStatByLabel('pts') : getStatByIndex(13)) || 0;
         
         // Calculate percentages
         const fgPct = fga > 0 ? ((fgm / fga) * 100).toFixed(1) : '0.0';
         const fg3Pct = fg3a > 0 ? ((fg3m / fg3a) * 100).toFixed(1) : '0.0';
         const ftPct = fta > 0 ? ((ftm / fta) * 100).toFixed(1) : '0.0';
 
-        return {
+        const result = {
           player: {
             id: p.athlete?.id || p.id || '',
             name: p.athlete?.displayName || p.displayName || 'Unknown',
@@ -510,6 +525,24 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
           ftPct,
           starter: p.starter || false,
         };
+
+        if (index === 0) {
+          logger.info('Player stats mapping snapshot', {
+            teamId,
+            athlete: result.player.shortName,
+            labels: normalizedLabels.slice(0, 8),
+            rawStatsSample: Array.isArray(stats) ? stats.slice(0, 8) : stats,
+            mapped: {
+              minutes: result.minutes,
+              points: result.points,
+              fg3m: result.fg3m,
+              fg3a: result.fg3a,
+              plusMinus: result.plusMinus,
+            },
+          });
+        }
+
+        return result;
       });
       
       // Filter out players who didn't play
@@ -566,14 +599,16 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
         const isHomeTeam = teamId === homeTeam.id || teamAbbrev === homeTeam.abbreviation;
         
         if (isHomeTeam) {
-          homeStats = parsePlayerStats(athletes, teamId);
+          const statLabels = team.statistics?.[0]?.labels || team.statistics?.[0]?.keys || [];
+          homeStats = parsePlayerStats(athletes, teamId, statLabels);
           logger.info('Home team player stats parsed', { 
             teamName,
             playerCount: homeStats.length,
             topScorer: homeStats[0] ? `${homeStats[0].player.shortName} (${homeStats[0].points} pts)` : 'none'
           });
         } else {
-          awayStats = parsePlayerStats(athletes, teamId);
+          const statLabels = team.statistics?.[0]?.labels || team.statistics?.[0]?.keys || [];
+          awayStats = parsePlayerStats(athletes, teamId, statLabels);
           logger.info('Away team player stats parsed', { 
             teamName,
             playerCount: awayStats.length,
@@ -1236,4 +1271,3 @@ export async function fetchGamesForDateRange(startDate: string, endDate: string)
   
   return allGames;
 }
-
