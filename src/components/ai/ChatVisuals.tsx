@@ -124,7 +124,7 @@ export interface VisualLeadersData {
 }
 
 export type AIVisualResponse =
-  | { type: 'games'; data: VisualGameData[] }
+  | { type: 'games'; data: VisualGameData[]; title?: string }
   | { type: 'game'; data: VisualGameData }
   | { type: 'game_recap'; data: VisualGameData & { boxscore?: any } }
   | { type: 'player'; data: VisualPlayerData }
@@ -874,7 +874,7 @@ export function ComparisonCard({ comparison }: { comparison: PlayerComparisonVis
 export function AIVisualRenderer({ visual }: { visual: AIVisualResponse }) {
   switch (visual.type) {
     case 'games':
-      return <GamesGrid games={visual.data} title="Today's Games" />;
+      return <GamesGrid games={visual.data} title={visual.title || "Today's Games"} />;
     case 'game':
       return <GameCard game={visual.data} />;
     case 'game_recap':

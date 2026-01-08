@@ -130,7 +130,7 @@ interface PlayerComparisonVisual {
 }
 
 type AIVisualResponse =
-  | { type: 'games'; data: VisualGameData[] }
+  | { type: 'games'; data: VisualGameData[]; title?: string }
   | { type: 'game'; data: VisualGameData }
   | { type: 'game_recap'; data: VisualGameData & { boxscore?: any; topPerformers?: any } }
   | { type: 'player'; data: VisualPlayerData }
@@ -1408,6 +1408,7 @@ export async function POST(request: Request) {
 
             visualResponse = {
               type: 'games',
+              title: `Games from ${dateDisplay}`,
               data: historicalData.games.map(game => ({
                 gameId: game.gameId,
                 homeTeam: {
