@@ -653,15 +653,21 @@ function detectUserIntent(message: string): UserIntent {
 
   // Check for game recap requests (specific game on specific date)
   // This should come BEFORE general game checks
-  const recapKeywords = ['recap', 'summary', 'how did', 'what happened', 'result', 'highlights'];
+  const recapKeywords = ['recap', 'summary', 'how did', 'what happened', 'result', 'highlights', 'all the games', 'all games'];
   const hasRecapKeyword = recapKeywords.some(kw => lowerMsg.includes(kw));
   const parsedDate = parseDateFromMessage(message);
 
-  // If there's a date reference and a team mention, it's likely a game recap request
-  if ((hasRecapKeyword || parsedDate) && (lowerMsg.includes('game') || hasRecapKeyword)) {
+  // If there's a date reference (yesterday, last night, specific date)
+  if (parsedDate || lowerMsg.includes('last night') || lowerMsg.includes('yesterday')) {
+    const dateInfo = parsedDate || (() => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { date: yesterday, dateStr: formatDateForESPN(yesterday) };
+    })();
+
+    // Check for specific team first
     for (const [key, team] of Object.entries(NBA_TEAMS)) {
       if (lowerMsg.includes(key)) {
-        const dateInfo = parsedDate || { dateStr: formatDateForESPN(new Date()), date: new Date() };
         console.log(`[Intent] Game recap detected for ${team.name} on ${dateInfo.dateStr}`);
         return {
           type: 'game_recap',
@@ -670,6 +676,17 @@ function detectUserIntent(message: string): UserIntent {
           dateStr: dateInfo.dateStr
         };
       }
+    }
+
+    // No specific team - return all games for that date
+    if (hasRecapKeyword || lowerMsg.includes('game')) {
+      console.log(`[Intent] All games recap detected for ${dateInfo.dateStr}`);
+      return {
+        type: 'games',
+        filter: 'date' as any, // Special filter for historical date
+        dateStr: dateInfo.dateStr,
+        date: dateInfo.date.toDateString()
+      } as any; // Extended games type with date
     }
   }
 
@@ -1377,6 +1394,57 @@ export async function POST(request: Request) {
         } catch (histError) {
           console.error('[AI Chat] Failed to fetch historical game:', histError);
           historicalGameContext = `\nCould not retrieve historical game data for ${intent.date}. ESPN may not have data for that date.`;
+        }
+      } else if (intent.type === 'games' && (intent as any).filter === 'date' && (intent as any).dateStr) {
+        // Handle "all games on date" query
+        const dateStr = (intent as any).dateStr;
+        const dateDisplay = (intent as any).date;
+        console.log(`[AI Chat] Fetching all games for ${dateStr}`);
+        try {
+          const historicalData = await fetchScoresByDate(dateStr);
+          console.log(`[AI Chat] Found ${historicalData.games.length} games on ${dateStr}`);
+
+          if (historicalData.games.length > 0) {
+            const getTeamLogo = (abbr: string) =>
+              `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
+
+            visualResponse = {
+              type: 'games',
+              data: historicalData.games.map(game => ({
+                gameId: game.gameId,
+                homeTeam: {
+                  name: game.homeTeam.name,
+                  abbreviation: game.homeTeam.abbreviation,
+                  logo: getTeamLogo(game.homeTeam.abbreviation),
+                  score: game.homeTeam.score,
+                  record: game.homeTeam.record,
+                },
+                awayTeam: {
+                  name: game.awayTeam.name,
+                  abbreviation: game.awayTeam.abbreviation,
+                  logo: getTeamLogo(game.awayTeam.abbreviation),
+                  score: game.awayTeam.score,
+                  record: game.awayTeam.record,
+                },
+                status: game.status,
+                period: game.period,
+                clock: game.clock,
+                venue: game.venue,
+              })),
+            };
+
+            // Build historical context
+            historicalGameContext = `\n\n===== GAMES FROM ${dateDisplay} =====\n`;
+            historicalData.games.forEach(g => {
+              historicalGameContext += `${g.awayTeam.name} ${g.awayTeam.score} @ ${g.homeTeam.name} ${g.homeTeam.score} (${g.status})\n`;
+            });
+            historicalGameContext += `===== END HISTORICAL DATA =====`;
+          } else {
+            historicalGameContext = `\nNo games found for ${dateDisplay}.`;
+          }
+        } catch (histError) {
+          console.error('[AI Chat] Failed to fetch historical games:', histError);
+          historicalGameContext = `\nCould not retrieve games data for ${dateDisplay}.`;
         }
       } else {
         visualResponse = await generateVisualResponse(intent, liveData);

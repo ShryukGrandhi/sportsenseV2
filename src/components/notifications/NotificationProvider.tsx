@@ -61,7 +61,7 @@ function NotificationToast({ notification, onClose, onViewInsight }: Notificatio
     alert: AlertTriangle,
     info: Bell,
   };
-  
+
   const colorMap = {
     score: 'from-green-500 to-emerald-600',
     highlight: 'from-orange-500 to-amber-600',
@@ -94,14 +94,14 @@ function NotificationToast({ notification, onClose, onViewInsight }: Notificatio
             )}
           </div>
           <p className="text-white/70 text-xs mt-1 line-clamp-2">{notification.message}</p>
-          
+
           {/* AI Insight Preview */}
           {notification.aiInsightPreview && (
             <p className="text-purple-300/80 text-xs mt-2 line-clamp-2 italic">
               ✨ {notification.aiInsightPreview}
             </p>
           )}
-          
+
           {/* View AI Insight Button */}
           {notification.hasAIInsight && notification.gameId && (
             <button
@@ -171,7 +171,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Notification[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  
+
   // AI Insight Modal state
   const [insightModal, setInsightModal] = useState<{
     isOpen: boolean;
@@ -188,29 +188,29 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const playSound = useCallback((type: Notification['type']) => {
     if (!soundEnabled) return;
-    
+
     try {
       // Create a simple beep sound using Web Audio API
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
-      
+
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
-      
+
       const frequencies: Record<Notification['type'], number> = {
         score: 880,
         highlight: 660,
         alert: 440,
         info: 550,
       };
-      
+
       const frequency = frequencies[type];
       if (frequency && isFinite(frequency)) {
         oscillator.frequency.value = frequency;
         oscillator.type = 'sine';
         gainNode.gain.value = 0.1;
-        
+
         oscillator.start();
         oscillator.stop(audioContext.currentTime + 0.15);
       }
@@ -227,10 +227,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       timestamp: new Date(),
       read: false,
     };
-    
+
     setNotifications(prev => [newNotification, ...prev].slice(0, 50));
     setToasts(prev => [newNotification, ...prev].slice(0, 3));
-    
+
     if (notification.sound !== false) {
       playSound(notification.type);
     }
@@ -281,9 +281,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Monitor for live game updates with AI-enhanced notifications
+  // ONLY notify for events that happen WHILE the user is on the site
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
-    const gameStates = new Map<string, { 
+    let isInitialLoad = true; // Skip notifications on first load
+
+    const gameStates = new Map<string, {
       lastScore: { home: number; away: number };
       notifiedFinal: boolean;
       notifiedHalftime: boolean;
@@ -295,7 +298,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       try {
         const response = await fetch('/api/live/nba');
         if (!response.ok) return;
-        
+
         const data = await response.json();
         const games = data.games || [];
 
@@ -307,6 +310,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             notifiedCloseGame: false,
             fetchingAI: false,
           };
+
+          // On initial load, just record current states without notifying
+          if (isInitialLoad) {
+            if (game.status === 'halftime') state.notifiedHalftime = true;
+            if (game.status === 'final') state.notifiedFinal = true;
+            state.lastScore = { home: game.homeTeam.score, away: game.awayTeam.score };
+            gameStates.set(game.gameId, state);
+            continue; // Skip notifications on initial load
+          }
 
           // Check for halftime with AI insight
           if (game.status === 'halftime' && !state.notifiedHalftime && !state.fetchingAI) {
@@ -321,7 +333,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               gameDate: game.gameDate,
             }).then((aiInsight) => {
               state.fetchingAI = false;
-              
+
               addNotification({
                 type: 'info',
                 title: `⏸️ Halftime: ${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`,
@@ -355,7 +367,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               gameDate: game.gameDate,
             }).then((aiInsight) => {
               state.fetchingAI = false;
-              
+
               addNotification({
                 type: 'score',
                 title: `🏆 ${winner.abbreviation} wins!`,
@@ -400,6 +412,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           state.lastScore = { home: game.homeTeam.score, away: game.awayTeam.score };
           gameStates.set(game.gameId, state);
         }
+
+        // After first check, allow notifications
+        isInitialLoad = false;
       } catch (error) {
         console.error('Failed to check for game updates:', error);
       }
@@ -417,19 +432,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     };
   }, [addNotification]);
 
-  // Welcome notification
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      addNotification({
-        type: 'info',
-        title: 'Welcome to SportSense!',
-        message: 'Your AI sports companion is ready. You\'ll get AI-powered insights at halftime and game end!',
-        sport: 'ALL',
-        sound: false,
-      });
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
+  // NOTE: Removed welcome notification - it was annoying on every page load
+  // Notifications now only appear for LIVE game updates
 
   return (
     <NotificationContext.Provider
@@ -446,7 +450,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-      
+
       {/* Toast container */}
       <div className="fixed top-4 right-4 z-50 space-y-3">
         {toasts.map((toast) => (
