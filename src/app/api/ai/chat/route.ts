@@ -129,7 +129,7 @@ interface PlayerComparisonVisual {
   }>;
 }
 
-type AIVisualResponse = 
+type AIVisualResponse =
   | { type: 'games'; data: VisualGameData[] }
   | { type: 'game'; data: VisualGameData }
   | { type: 'player'; data: VisualPlayerData }
@@ -144,58 +144,253 @@ type AIVisualResponse =
 // ============================================
 
 const PLAYER_NAME_MAP: Record<string, string> = {
+  // LeBron James - all variations
   'lebron': 'LeBron James',
   'lebron james': 'LeBron James',
   'lbj': 'LeBron James',
+  'lebrun': 'LeBron James',
+  'lebrun james': 'LeBron James',
+  'le bron': 'LeBron James',
+  'king james': 'LeBron James',
+
+  // Stephen Curry - all variations
   'curry': 'Stephen Curry',
   'steph': 'Stephen Curry',
   'steph curry': 'Stephen Curry',
   'stephen curry': 'Stephen Curry',
+  'chef curry': 'Stephen Curry',
+  'currey': 'Stephen Curry',
+  'stephan curry': 'Stephen Curry',
+
+  // Kevin Durant
   'kd': 'Kevin Durant',
   'durant': 'Kevin Durant',
   'kevin durant': 'Kevin Durant',
+  'durantula': 'Kevin Durant',
+
+  // Giannis Antetokounmpo - many misspellings
   'giannis': 'Giannis Antetokounmpo',
   'greek freak': 'Giannis Antetokounmpo',
+  'gianis': 'Giannis Antetokounmpo',
+  'gianni': 'Giannis Antetokounmpo',
+  'antetokounmpo': 'Giannis Antetokounmpo',
+  'giannis antetokounmpo': 'Giannis Antetokounmpo',
+  'antetokoumpo': 'Giannis Antetokounmpo',
+
+  // Luka Dončić
   'luka': 'Luka Dončić',
   'luka doncic': 'Luka Dončić',
+  'doncic': 'Luka Dončić',
+  'luka magic': 'Luka Dončić',
+  'wonder boy': 'Luka Dončić',
+
+  // Nikola Jokić
   'jokic': 'Nikola Jokić',
   'nikola jokic': 'Nikola Jokić',
   'the joker': 'Nikola Jokić',
+  'joker': 'Nikola Jokić',
+  'jokitch': 'Nikola Jokić',
+
+  // Jayson Tatum
   'tatum': 'Jayson Tatum',
   'jayson tatum': 'Jayson Tatum',
+  'jt': 'Jayson Tatum',
+  'jason tatum': 'Jayson Tatum',
+
+  // Joel Embiid
   'embiid': 'Joel Embiid',
   'joel embiid': 'Joel Embiid',
+  'the process': 'Joel Embiid',
+  'embid': 'Joel Embiid',
+  'embieed': 'Joel Embiid',
+
+  // Anthony Edwards
   'ant': 'Anthony Edwards',
   'anthony edwards': 'Anthony Edwards',
+  'ant man': 'Anthony Edwards',
+  'a1': 'Anthony Edwards',
+  'edwards': 'Anthony Edwards',
+
+  // Shai Gilgeous-Alexander
   'sga': 'Shai Gilgeous-Alexander',
   'shai': 'Shai Gilgeous-Alexander',
+  'gilgeous': 'Shai Gilgeous-Alexander',
+  'gilgeous-alexander': 'Shai Gilgeous-Alexander',
+  'shai gilgeous alexander': 'Shai Gilgeous-Alexander',
+
+  // Devin Booker
   'booker': 'Devin Booker',
   'devin booker': 'Devin Booker',
+  'book': 'Devin Booker',
+  'd book': 'Devin Booker',
+
+  // Ja Morant
   'morant': 'Ja Morant',
   'ja morant': 'Ja Morant',
   'ja': 'Ja Morant',
+  'temetrius': 'Ja Morant',
+
+  // Donovan Mitchell
   'donovan mitchell': 'Donovan Mitchell',
   'spida': 'Donovan Mitchell',
+  'mitchell': 'Donovan Mitchell',
+  'don mitchell': 'Donovan Mitchell',
+
+  // Jalen Brunson
   'brunson': 'Jalen Brunson',
   'jalen brunson': 'Jalen Brunson',
+  'jb': 'Jalen Brunson',
+
+  // De'Aaron Fox
   'fox': 'De\'Aaron Fox',
   'deaaron fox': 'De\'Aaron Fox',
+  'de aaron fox': 'De\'Aaron Fox',
+  'swipa': 'De\'Aaron Fox',
+
+  // Kawhi Leonard
   'kawhi': 'Kawhi Leonard',
   'kawhi leonard': 'Kawhi Leonard',
+  'the claw': 'Kawhi Leonard',
+  'klaw': 'Kawhi Leonard',
+
+  // Paul George
   'pg': 'Paul George',
   'paul george': 'Paul George',
+  'pg13': 'Paul George',
+
+  // James Harden
   'harden': 'James Harden',
   'james harden': 'James Harden',
+  'the beard': 'James Harden',
+
+  // Damian Lillard
   'dame': 'Damian Lillard',
   'damian lillard': 'Damian Lillard',
   'lillard': 'Damian Lillard',
+  'dame time': 'Damian Lillard',
+  'dame dolla': 'Damian Lillard',
+
+  // Bam Adebayo
   'bam': 'Bam Adebayo',
   'bam adebayo': 'Bam Adebayo',
+  'adebayo': 'Bam Adebayo',
+
+  // Jimmy Butler
   'jimmy butler': 'Jimmy Butler',
   'jimmy': 'Jimmy Butler',
+  'jimmy buckets': 'Jimmy Butler',
+  'butler': 'Jimmy Butler',
+
+  // Victor Wembanyama
   'wemby': 'Victor Wembanyama',
   'wembanyama': 'Victor Wembanyama',
   'victor wembanyama': 'Victor Wembanyama',
+  'alien': 'Victor Wembanyama',
+  'wembanyana': 'Victor Wembanyama',
+
+  // Jaylen Brown
+  'jaylen brown': 'Jaylen Brown',
+  'jaylen': 'Jaylen Brown',
+  'jb celtics': 'Jaylen Brown',
+
+  // Tyrese Haliburton
+  'haliburton': 'Tyrese Haliburton',
+  'tyrese haliburton': 'Tyrese Haliburton',
+  'hali': 'Tyrese Haliburton',
+
+  // Tyrese Maxey
+  'maxey': 'Tyrese Maxey',
+  'tyrese maxey': 'Tyrese Maxey',
+
+  // Paolo Banchero
+  'paolo': 'Paolo Banchero',
+  'paolo banchero': 'Paolo Banchero',
+  'banchero': 'Paolo Banchero',
+
+  // Chet Holmgren
+  'chet': 'Chet Holmgren',
+  'chet holmgren': 'Chet Holmgren',
+  'holmgren': 'Chet Holmgren',
+
+  // Trae Young
+  'trae': 'Trae Young',
+  'trae young': 'Trae Young',
+  'ice trae': 'Trae Young',
+  'trey young': 'Trae Young',
+
+  // Zion Williamson
+  'zion': 'Zion Williamson',
+  'zion williamson': 'Zion Williamson',
+
+  // Karl-Anthony Towns
+  'kat': 'Karl-Anthony Towns',
+  'karl anthony towns': 'Karl-Anthony Towns',
+  'towns': 'Karl-Anthony Towns',
+
+  // Domantas Sabonis
+  'sabonis': 'Domantas Sabonis',
+  'domantas sabonis': 'Domantas Sabonis',
+
+  // Lauri Markkanen
+  'lauri': 'Lauri Markkanen',
+  'markkanen': 'Lauri Markkanen',
+  'lauri markkanen': 'Lauri Markkanen',
+
+  // DeMar DeRozan
+  'demar': 'DeMar DeRozan',
+  'derozan': 'DeMar DeRozan',
+  'demar derozan': 'DeMar DeRozan',
+
+  // Kyrie Irving
+  'kyrie': 'Kyrie Irving',
+  'kyrie irving': 'Kyrie Irving',
+  'uncle drew': 'Kyrie Irving',
+
+  // Russell Westbrook
+  'westbrook': 'Russell Westbrook',
+  'russ': 'Russell Westbrook',
+  'russell westbrook': 'Russell Westbrook',
+  'brodie': 'Russell Westbrook',
+
+  // Chris Paul
+  'cp3': 'Chris Paul',
+  'chris paul': 'Chris Paul',
+
+  // Draymond Green
+  'draymond': 'Draymond Green',
+  'draymond green': 'Draymond Green',
+  'dpoy dray': 'Draymond Green',
+
+  // Klay Thompson
+  'klay': 'Klay Thompson',
+  'klay thompson': 'Klay Thompson',
+
+  // Rudy Gobert
+  'gobert': 'Rudy Gobert',
+  'rudy gobert': 'Rudy Gobert',
+  'stifle tower': 'Rudy Gobert',
+
+  // LaMelo Ball
+  'lamelo': 'LaMelo Ball',
+  'lamelo ball': 'LaMelo Ball',
+  'melo ball': 'LaMelo Ball',
+
+  // Jaren Jackson Jr
+  'jjj': 'Jaren Jackson Jr.',
+  'jaren jackson': 'Jaren Jackson Jr.',
+  'jaren jackson jr': 'Jaren Jackson Jr.',
+
+  // Austin Reaves
+  'reaves': 'Austin Reaves',
+  'austin reaves': 'Austin Reaves',
+  'ar15': 'Austin Reaves',
+  'hillbilly kobe': 'Austin Reaves',
+
+  // Anthony Davis
+  'ad': 'Anthony Davis',
+  'anthony davis': 'Anthony Davis',
+  'the brow': 'Anthony Davis',
+  'davis': 'Anthony Davis',
 };
 
 // ============================================
@@ -245,7 +440,7 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 // INTENT DETECTION
 // ============================================
 
-type UserIntent = 
+type UserIntent =
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team'; team?: string }
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
   | { type: 'player'; name: string }
@@ -256,7 +451,7 @@ type UserIntent =
 
 function detectUserIntent(message: string): UserIntent {
   const lowerMsg = message.toLowerCase();
-  
+
   // Check for player comparison first
   const comparisonPatterns = [
     /compare\s+(.+?)\s+(?:vs?\.?|versus|and|to|with)\s+(.+)/i,
@@ -264,8 +459,10 @@ function detectUserIntent(message: string): UserIntent {
     /who(?:'s| is)\s+better[,:]?\s+(.+?)\s+or\s+(.+)/i,
     /(.+?)\s+or\s+(.+?)\s+who(?:'s| is)\s+better/i,
     /between\s+(.+?)\s+and\s+(.+)/i,
+    /would you take\s+(.+?)\s+or\s+(.+)/i,
+    /pick\s+(.+?)\s+or\s+(.+)/i,
   ];
-  
+
   for (const pattern of comparisonPatterns) {
     const match = lowerMsg.match(pattern);
     if (match) {
@@ -276,28 +473,32 @@ function detectUserIntent(message: string): UserIntent {
       return { type: 'comparison', player1, player2 };
     }
   }
-  
+
   // Check for standings
-  if (lowerMsg.includes('standing') || lowerMsg.includes('rank') || lowerMsg.includes('playoff')) {
+  if (lowerMsg.includes('standing') || lowerMsg.includes('rank') || lowerMsg.includes('playoff') ||
+    lowerMsg.includes('seeding') || lowerMsg.includes('conference rank')) {
     if (lowerMsg.includes('east')) return { type: 'standings', conference: 'east' };
     if (lowerMsg.includes('west')) return { type: 'standings', conference: 'west' };
     return { type: 'standings', conference: 'both' };
   }
-  
+
   // Check for specific player info BEFORE checking for games
   // This ensures player queries get player visuals even if they mention "game" or "today"
   const playerQueryPatterns = [
-    /how (?:many|did|is|was|does|has)\s+(?:\w+\s+){0,3}(\w+(?:\s+\w+)?)\s+(?:score|play|do|perform|have)/i,
-    /(?:tell me about|show me|what about|who is|stats for|statistics for)\s+(.+?)(?:\?|$)/i,
-    /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages)/i,
+    /how (?:many|did|is|was|does|has)\s+(?:\w+\s+){0,3}(\w+(?:\s+\w+)?)\s+(?:score|play|do|perform|have|average)/i,
+    /(?:tell me about|show me|what about|who is|stats for|statistics for|info on|information on)\s+(.+?)(?:\?|$)/i,
+    /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages|season|career)/i,
     /how\s+(?:is|was|did)\s+(.+?)\s+(?:playing|doing|perform)/i,
+    /what(?:'s| is| are)\s+(.+?)'?s?\s+(?:stats|numbers|averages|ppg|rpg|apg)/i,
+    /give me\s+(.+?)'?s?\s+(?:stats|numbers|info)/i,
+    /(\w+(?:\s+\w+)?)\s+(?:scoring|averaging|putting up|getting)/i,
   ];
-  
+
   for (const pattern of playerQueryPatterns) {
     const match = lowerMsg.match(pattern);
     if (match) {
       let playerName = match[1].trim().replace(/[?!.,\'s]/g, '').trim();
-      // Check if it's a known player
+      // Check if it's a known player (exact match first)
       const fullName = PLAYER_NAME_MAP[playerName.toLowerCase()];
       if (fullName) {
         return { type: 'player', name: fullName };
@@ -308,43 +509,74 @@ function detectUserIntent(message: string): UserIntent {
           return { type: 'player', name: full };
         }
       }
+      // Use fuzzy matching for misspellings
+      for (const [nickname, full] of Object.entries(PLAYER_NAME_MAP)) {
+        if (levenshteinDistance(playerName.toLowerCase(), nickname) <= 2) {
+          console.log(`[Intent] Fuzzy matched "${playerName}" to "${full}"`);
+          return { type: 'player', name: full };
+        }
+      }
     }
   }
-  
-  // Check for known player names directly
+
+  // Check for known player names directly (including fuzzy matching)
   for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
     if (lowerMsg.includes(nickname)) {
       return { type: 'player', name: fullName };
     }
   }
-  
+
+  // Fuzzy match player names in the message
+  const words = lowerMsg.split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    // Check single words and two-word combinations
+    const singleWord = words[i].replace(/[?!.,]/g, '');
+    const twoWords = i < words.length - 1 ? `${singleWord} ${words[i + 1].replace(/[?!.,]/g, '')}` : '';
+
+    for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
+      if (levenshteinDistance(singleWord, nickname) <= 2 && singleWord.length > 3) {
+        console.log(`[Intent] Fuzzy matched word "${singleWord}" to "${fullName}"`);
+        return { type: 'player', name: fullName };
+      }
+      if (twoWords && levenshteinDistance(twoWords, nickname) <= 2) {
+        console.log(`[Intent] Fuzzy matched phrase "${twoWords}" to "${fullName}"`);
+        return { type: 'player', name: fullName };
+      }
+    }
+  }
+
   // Check for games/scores (after player check)
-  if (lowerMsg.includes('score') || lowerMsg.includes('game') || lowerMsg.includes('playing') || 
-      lowerMsg.includes('tonight') || lowerMsg.includes('today') || lowerMsg.includes('live')) {
+  // Be more specific about game-related queries
+  const gameKeywords = ['score', 'playing tonight', 'playing today', 'live game', 'current game',
+    'what games', 'any games', 'games tonight', 'games today', 'games on'];
+  const hasGameKeyword = gameKeywords.some(kw => lowerMsg.includes(kw));
+
+  if (hasGameKeyword || (lowerMsg.includes('live') && !lowerMsg.includes('live up to'))) {
     // Check for specific team
     for (const [key, team] of Object.entries(NBA_TEAMS)) {
       if (lowerMsg.includes(key)) {
         return { type: 'games', filter: 'team', team: team.abbreviation };
       }
     }
-    
+
     if (lowerMsg.includes('live')) return { type: 'games', filter: 'live' };
     return { type: 'games', filter: 'today' };
   }
-  
+
   // Check for team info
   for (const [key, team] of Object.entries(NBA_TEAMS)) {
     if (lowerMsg.includes(key)) {
       return { type: 'team', name: team.name };
     }
   }
-  
+
   // Check for leaders/stats
-  if (lowerMsg.includes('leader') || lowerMsg.includes('best') || lowerMsg.includes('top scorer') ||
-      lowerMsg.includes('mvp') || lowerMsg.includes('who leads')) {
+  if (lowerMsg.includes('leader') || lowerMsg.includes('top scorer') ||
+    lowerMsg.includes('mvp') || lowerMsg.includes('who leads') ||
+    lowerMsg.includes('scoring leader') || lowerMsg.includes('best player')) {
     return { type: 'leaders' };
   }
-  
+
   return { type: 'general' };
 }
 
@@ -357,36 +589,36 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
     console.log(`[Player Search] Searching for: "${playerName}"`);
     const searchUrl = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(playerName)}&limit=10&type=player`;
     const response = await fetch(searchUrl);
-    
+
     if (!response.ok) {
       console.log(`[Player Search] Search request failed with status: ${response.status}`);
       return null;
     }
-    
+
     const data = await response.json();
     // ESPN API returns 'items' not 'results'
     const results = data.items || data.results || [];
     console.log(`[Player Search] Found ${results.length} total results`);
-    
+
     // Log all results for debugging
     results.forEach((r: any, i: number) => {
       console.log(`[Player Search] Result ${i}: ${r.displayName} (type: ${r.type}, league: ${r.league}, sport: ${r.sport})`);
     });
-    
+
     // First pass: exact NBA match (league can be string 'nba' or object)
     for (const result of results) {
-      const isNBA = result.league === 'nba' || 
-                   result.league?.toLowerCase?.() === 'nba' ||
-                   result.league?.abbreviation === 'NBA' ||
-                   result.defaultLeagueSlug === 'nba';
-      
+      const isNBA = result.league === 'nba' ||
+        result.league?.toLowerCase?.() === 'nba' ||
+        result.league?.abbreviation === 'NBA' ||
+        result.defaultLeagueSlug === 'nba';
+
       if (result.type === 'player' && isNBA) {
         // Get team info from teamRelationships
         const teamRel = result.teamRelationships?.[0]?.core || result.team;
         const teamName = teamRel?.displayName || result.teamRelationships?.[0]?.displayName || 'Unknown';
         const teamAbbr = teamRel?.abbreviation || 'nba';
         const teamLogo = teamRel?.logos?.[0]?.href || `https://a.espncdn.com/i/teamlogos/nba/500/${teamAbbr.toLowerCase()}.png`;
-        
+
         console.log(`[Player Search] Found NBA player: ${result.displayName} (ID: ${result.id}, Team: ${teamName})`);
         return {
           id: result.id,
@@ -397,7 +629,7 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
         };
       }
     }
-    
+
     // Second pass: any basketball player
     for (const result of results) {
       if (result.type === 'player' && result.sport === 'basketball') {
@@ -405,7 +637,7 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
         const teamName = teamRel?.displayName || result.teamRelationships?.[0]?.displayName || 'Unknown';
         const teamAbbr = teamRel?.abbreviation || 'nba';
         const teamLogo = teamRel?.logos?.[0]?.href || `https://a.espncdn.com/i/teamlogos/nba/500/${teamAbbr.toLowerCase()}.png`;
-        
+
         console.log(`[Player Search] Found basketball player (fallback): ${result.displayName} (ID: ${result.id})`);
         return {
           id: result.id,
@@ -416,7 +648,7 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
         };
       }
     }
-    
+
     console.log(`[Player Search] No NBA player found for "${playerName}"`);
     return null;
   } catch (error) {
@@ -437,19 +669,19 @@ async function fetchPlayerSeasonStats(playerId: string): Promise<ExtendedPlayerS
   try {
     // Use the same function that the game analytics page uses
     const seasonStats = await fetchPlayerStats(playerId);
-    
+
     if (!seasonStats) {
       console.log(`[Player Stats] No stats found for player ${playerId}`);
       return null;
     }
-    
+
     console.log(`[Player Stats] Raw stats for ${playerId}:`, {
       pointsPerGame: seasonStats.pointsPerGame,
       reboundsPerGame: seasonStats.reboundsPerGame,
       assistsPerGame: seasonStats.assistsPerGame,
       fgPct: seasonStats.fgPct,
     });
-    
+
     // Convert ESPNPlayerSeasonStats to ExtendedPlayerStats format
     // Note: ESPN returns percentages as whole numbers (e.g., 51.26 not 0.5126)
     const converted = {
@@ -464,9 +696,9 @@ async function fetchPlayerSeasonStats(playerId: string): Promise<ExtendedPlayerS
       mpg: seasonStats.minutesPerGame || 0,
       gamesPlayed: seasonStats.gamesPlayed || 0,
     };
-    
+
     console.log(`[Player Stats] Converted stats for ${playerId}:`, converted);
-    
+
     return converted;
   } catch (error) {
     console.error('[Player Stats] Error:', error);
@@ -476,26 +708,26 @@ async function fetchPlayerSeasonStats(playerId: string): Promise<ExtendedPlayerS
 
 async function fetchFullPlayerData(playerName: string): Promise<VisualPlayerData | null> {
   console.log(`[Player Data] Fetching full data for: ${playerName}`);
-  
+
   const playerInfo = await searchPlayer(playerName);
   if (!playerInfo) {
     console.log(`[Player Data] Player not found: ${playerName}`);
     return null;
   }
-  
+
   console.log(`[Player Data] Found player: ${playerInfo.name} (${playerInfo.id})`);
-  
+
   // Fetch player stats directly - this is the same function used by game analytics
   const fullPlayerStats = await fetchPlayerStats(playerInfo.id);
-  
+
   console.log(`[Player Data] Full player stats for ${playerInfo.name}:`, fullPlayerStats);
-  
+
   if (!fullPlayerStats) {
     console.log(`[Player Data] WARNING: No stats found for ${playerInfo.name} (${playerInfo.id})`);
   } else {
     console.log(`[Player Data] Stats found - PPG: ${fullPlayerStats.pointsPerGame}, RPG: ${fullPlayerStats.reboundsPerGame}, APG: ${fullPlayerStats.assistsPerGame}`);
   }
-  
+
   // Convert ESPNPlayerSeasonStats to our format
   // Note: ESPN returns percentages as whole numbers (e.g., 51.26 not 0.5126)
   const finalStats: ExtendedPlayerStats = fullPlayerStats ? {
@@ -510,9 +742,9 @@ async function fetchFullPlayerData(playerName: string): Promise<VisualPlayerData
     mpg: fullPlayerStats.minutesPerGame || 0,
     gamesPlayed: fullPlayerStats.gamesPlayed || 0,
   } : { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, fgPct: 0, fg3Pct: 0, ftPct: 0, mpg: 0, gamesPlayed: 0 };
-  
+
   console.log(`[Player Data] Final converted stats for ${playerInfo.name}:`, finalStats);
-  
+
   const result: VisualPlayerData = {
     id: playerInfo.id,
     name: playerInfo.name,
@@ -523,21 +755,21 @@ async function fetchFullPlayerData(playerName: string): Promise<VisualPlayerData
     number: fullPlayerStats?.jersey || undefined,
     stats: finalStats,
   };
-  
+
   console.log(`[Player Data] Returning player data for ${playerInfo.name} with stats:`, result.stats);
-  
+
   return result;
 }
 
 // Search for player stats in today's games boxscores
 function findPlayerInBoxscores(playerName: string, liveContext: string): string | null {
   const normalizedName = playerName.toLowerCase();
-  
+
   // Search through the context for player stats
   const lines = liveContext.split('\n');
   for (const line of lines) {
     const lowerLine = line.toLowerCase();
-    
+
     // Check if this line contains the player's stats
     // Format: "    PlayerName: Xpts, Xreb, Xast, ..."
     const namePart = lowerLine.split(':')[0]?.trim();
@@ -549,7 +781,7 @@ function findPlayerInBoxscores(playerName: string, liveContext: string): string 
       return line.trim();
     }
   }
-  
+
   return null;
 }
 
@@ -557,16 +789,16 @@ function findPlayerInBoxscores(playerName: string, liveContext: string): string 
 function levenshteinDistance(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
-  
+
   const matrix: number[][] = [];
-  
+
   for (let i = 0; i <= b.length; i++) {
     matrix[i] = [i];
   }
   for (let j = 0; j <= a.length; j++) {
     matrix[0][j] = j;
   }
-  
+
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
@@ -580,14 +812,14 @@ function levenshteinDistance(a: string, b: string): number {
       }
     }
   }
-  
+
   return matrix[b.length][a.length];
 }
 
 function convertGameToVisual(game: LiveGameData): VisualGameData {
-  const getTeamLogo = (abbr: string) => 
+  const getTeamLogo = (abbr: string) =>
     `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
-  
+
   return {
     gameId: game.gameId,
     homeTeam: {
@@ -621,28 +853,28 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
     switch (intent.type) {
       case 'games': {
         let games = liveData.games as LiveGameData[];
-        
+
         if (intent.filter === 'live') {
           games = games.filter(g => g.status === 'live' || g.status === 'halftime');
         } else if (intent.filter === 'team' && intent.team) {
-          games = games.filter(g => 
-            g.homeTeam.abbreviation === intent.team || 
+          games = games.filter(g =>
+            g.homeTeam.abbreviation === intent.team ||
             g.awayTeam.abbreviation === intent.team
           );
         }
-        
+
         if (games.length === 0) return null;
-        
+
         return {
           type: 'games',
           data: games.map(convertGameToVisual),
         };
       }
-      
+
       case 'standings': {
         const standingsData = await fetchStandings();
         const result: VisualStandingsData[] = [];
-        
+
         if (intent.conference !== 'west' && standingsData.east.length > 0) {
           result.push({
             conference: 'East',
@@ -661,7 +893,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             })),
           });
         }
-        
+
         if (intent.conference !== 'east' && standingsData.west.length > 0) {
           result.push({
             conference: 'West',
@@ -680,12 +912,12 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             })),
           });
         }
-        
+
         if (result.length === 0) return null;
-        
+
         return { type: 'standings', data: result };
       }
-      
+
       case 'player': {
         const player = await fetchFullPlayerData(intent.name);
         if (!player) {
@@ -704,16 +936,16 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             },
           };
         }
-        
+
         // Check if player has game stats from today
         const boxscores = await fetchAllBoxscores(liveData.games as LiveGameData[]);
         for (const game of boxscores) {
           const allPlayers = [...game.homePlayers, ...game.awayPlayers];
-          const playerStats = allPlayers.find(p => 
+          const playerStats = allPlayers.find(p =>
             p.name.toLowerCase().includes(player.name.toLowerCase().split(' ')[1] || player.name.toLowerCase()) ||
             player.name.toLowerCase().includes(p.name.toLowerCase().split(' ')[1] || p.name.toLowerCase())
           );
-          
+
           if (playerStats) {
             player.gameStats = {
               points: playerStats.points,
@@ -730,16 +962,16 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             break;
           }
         }
-        
+
         return { type: 'player', data: player };
       }
-      
+
       case 'comparison': {
         const [player1, player2] = await Promise.all([
           fetchFullPlayerData(intent.player1),
           fetchFullPlayerData(intent.player2),
         ]);
-        
+
         // Always return a visual for comparison queries, even if data fetch fails
         // Use fetched data or create minimal placeholder objects
         const p1 = player1 || {
@@ -751,7 +983,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           position: '',
           stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, fgPct: 0, fg3Pct: 0, ftPct: 0, mpg: 0 },
         };
-        
+
         const p2 = player2 || {
           id: '',
           name: intent.player2,
@@ -761,10 +993,10 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           position: '',
           stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, fgPct: 0, fg3Pct: 0, ftPct: 0, mpg: 0 },
         };
-        
+
         // Format percentages correctly - stats come as percentages already (e.g., 51.26 not 0.5126)
         const formatPct = (val: number) => val > 1 ? val.toFixed(1) + '%' : (val * 100).toFixed(1) + '%';
-        
+
         const categories: PlayerComparisonVisual['categories'] = [
           { name: 'PPG', player1Value: p1.stats.ppg?.toFixed(1) || '0.0', player2Value: p2.stats.ppg?.toFixed(1) || '0.0', winner: (p1.stats.ppg || 0) > (p2.stats.ppg || 0) ? 'player1' : (p2.stats.ppg || 0) > (p1.stats.ppg || 0) ? 'player2' : 'tie' },
           { name: 'RPG', player1Value: p1.stats.rpg?.toFixed(1) || '0.0', player2Value: p2.stats.rpg?.toFixed(1) || '0.0', winner: (p1.stats.rpg || 0) > (p2.stats.rpg || 0) ? 'player1' : (p2.stats.rpg || 0) > (p1.stats.rpg || 0) ? 'player2' : 'tie' },
@@ -775,7 +1007,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           { name: '3P%', player1Value: formatPct(p1.stats.fg3Pct || 0), player2Value: formatPct(p2.stats.fg3Pct || 0), winner: (p1.stats.fg3Pct || 0) > (p2.stats.fg3Pct || 0) ? 'player1' : (p2.stats.fg3Pct || 0) > (p1.stats.fg3Pct || 0) ? 'player2' : 'tie' },
           { name: 'FT%', player1Value: formatPct(p1.stats.ftPct || 0), player2Value: formatPct(p2.stats.ftPct || 0), winner: (p1.stats.ftPct || 0) > (p2.stats.ftPct || 0) ? 'player1' : (p2.stats.ftPct || 0) > (p1.stats.ftPct || 0) ? 'player2' : 'tie' },
         ];
-        
+
         return {
           type: 'comparison',
           data: {
@@ -786,7 +1018,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           },
         };
       }
-      
+
       default:
         return null;
     }
@@ -827,32 +1059,32 @@ const SAFETY_SETTINGS = [
 ];
 
 const PERSONALITY_PROMPTS: Record<string, string> = {
-  default: `You are Playmaker AI, a knowledgeable and enthusiastic sports companion. 
-You're helpful, insightful, and talk like a friend who really knows their sports. 
-Keep responses balanced - not too formal, not too casual.`,
+  default: `You are Playmaker AI, a knowledgeable sports companion who gets straight to the point.
+Lead with FACTS and STATS. Skip filler phrases like "Great question!" or "That's interesting!"
+Be conversational but substantive. Every sentence should add value.`,
 
-  hype: `You are PLAYMAKER AI and you are ABSOLUTELY HYPED about sports! 🔥
-Every play is INCREDIBLE, every stat is MIND-BLOWING!
-Use ALL CAPS for emphasis, lots of exclamation points, and fire emojis!
-Make the user FEEL the excitement! LET'S GOOOOO!!!`,
+  hype: `You are PLAYMAKER AI and you are HYPED! 🔥
+Lead with the stats that matter, then bring the energy!
+Use emphasis and emojis but ALWAYS include real numbers.
+Every response needs SUBSTANCE behind the hype!`,
 
-  drunk: `You're Playmaker AI, but you're like a buddy at the bar after a few beers 🍺
-You're super chill, maybe a little rambly, and you've got hot takes.
-Use casual language, some slang, maybe trail off mid-thought...`,
+  drunk: `You're Playmaker AI at the bar after a few beers 🍺
+You're chill and have hot takes, but you still know your stats.
+Casual language, some slang, but keep it informative...`,
 
-  announcer: `You are PLAYMAKER AI, channeling the energy of a legendary sports broadcaster.
-Speak with gravitas and drama. Paint the picture with words.
-Use broadcaster phrases: "What a play!", "Down the stretch!"`,
+  announcer: `You are PLAYMAKER AI, the legendary sports broadcaster.
+Lead with key stats and context before painting the picture.
+Use broadcaster phrases but anchor them in real data.`,
 
   analyst: `You are Playmaker AI in full analyst mode.
-Focus on advanced statistics, strategic breakdowns, and tactical observations.
-Reference efficiency metrics, plus/minus, pace of play, defensive schemes.`,
+Lead with advanced statistics: efficiency, plus/minus, pace, shot selection.
+Every claim needs data backing. Be direct and analytical.`,
 };
 
 const LENGTH_CONFIG: Record<string, { maxTokens: number; instruction: string }> = {
-  short: { maxTokens: 150, instruction: 'Keep your response very brief - 1-2 sentences max.' },
-  medium: { maxTokens: 350, instruction: 'Give a moderate response - 3-4 sentences.' },
-  long: { maxTokens: 600, instruction: 'Provide a detailed response with full context.' },
+  short: { maxTokens: 150, instruction: 'Keep your response very brief - 1-2 sentences max. No filler phrases.' },
+  medium: { maxTokens: 350, instruction: 'Give a moderate response - 3-4 sentences. Lead with facts, skip pleasantries.' },
+  long: { maxTokens: 600, instruction: 'Provide a detailed response with full context. Stay substantive throughout.' },
 };
 
 // ============================================
@@ -878,28 +1110,28 @@ interface ChatRequest {
 
 export async function POST(request: Request) {
   console.log('[AI Chat] Received request');
-  
+
   let parsedMessage = '';
-  
+
   try {
     let body: ChatRequest;
     try {
       body = await request.json();
       parsedMessage = body.message || '';
     } catch (parseError) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Invalid JSON in request body',
         response: "I couldn't understand your request. Please try again!"
       }, { status: 400 });
     }
-    
-    const { 
-      message, 
-      personality = 'default', 
+
+    const {
+      message,
+      personality = 'default',
       length = 'medium',
       type = 'general',
       requestVisuals = true,
-      gameContext 
+      gameContext
     } = body;
 
     if (!message) {
@@ -926,11 +1158,11 @@ export async function POST(request: Request) {
     let liveContext;
     try {
       liveData = await fetchAllLiveData();
-      
+
       // Fetch detailed boxscores for live/final games to get individual player stats
       const boxscores = await fetchAllBoxscores(liveData.games);
       console.log(`[AI Chat] Fetched ${boxscores.length} game boxscores with individual player stats`);
-      
+
       liveContext = buildAIContext(liveData, boxscores);
     } catch (dataError) {
       console.error('[AI Chat] Failed to fetch live data:', dataError);
@@ -999,17 +1231,34 @@ export async function POST(request: Request) {
 
 ${lengthSettings.instruction}
 
-You are an expert NBA analyst with access to REAL-TIME data including INDIVIDUAL PLAYER STATISTICS from today's games. Your responses should be:
-1. CONVERSATIONAL - Talk like a knowledgeable friend, not a database
-2. INSIGHTFUL - Add analysis, context, and your perspective
-3. STATS-RICH - When asked about players, USE the individual player stats provided (points, rebounds, assists, steals, blocks, FG%, 3PT%, minutes, +/-)
-4. VISUAL-AWARE - If visual data is being shown, don't repeat raw numbers, add VALUE
+You are an expert NBA analyst with access to REAL-TIME data. CRITICAL RULES:
 
-CRITICAL: You HAVE access to individual player statistics from today's games. The data includes each player's points, rebounds, assists, steals, blocks, field goal attempts/makes, 3-point attempts/makes, minutes played, and plus/minus. USE THIS DATA when answering questions about specific players.
+1. UNDERSTAND THE QUESTION FIRST - Figure out what the user actually wants:
+   - If they mention a player name (even misspelled), give info about THAT PLAYER
+   - If they ask about games/scores, show today's games
+   - If they ask general questions, answer directly
+   - DO NOT default to showing today's games unless specifically asked
 
-${visualContext ? 'IMPORTANT: The user will see a rich visual (cards, tables, charts) alongside your response. DO NOT repeat data shown in the visual. Instead, provide ANALYSIS and INSIGHTS.' : ''}
+2. BE DIRECT AND FACT-FOCUSED:
+   - NEVER start with "Great question!", "That's a good one!", or similar filler
+   - Lead with the most important fact or stat
+   - Include specific numbers (PPG, RPG, APG, FG%, etc.)
+   - Every sentence should provide VALUE
 
-===== LIVE DATA WITH INDIVIDUAL PLAYER STATS =====
+3. HANDLE MISSPELLINGS:
+   - If a player name is misspelled, figure out who they mean and respond about that player
+   - Examples: "lebrun" = LeBron James, "gianis" = Giannis, "steph currey" = Stephen Curry
+
+4. STATS-RICH RESPONSES:
+   - When asked about players, USE the individual player stats (points, rebounds, assists, steals, blocks, FG%, 3PT%, minutes)
+   - Season averages are more important than single-game stats unless asked about today
+
+5. VISUAL-AWARE:
+   - If showing a visual card, DON'T repeat the raw stats - provide ANALYSIS and CONTEXT instead
+
+${visualContext ? 'IMPORTANT: A visual card is being shown to the user. Add analysis and context, not repetition of visible stats.' : ''}
+
+===== LIVE DATA =====
 ${liveContext}
 ===== END DATA =====
 ${gameSpecificContext}
@@ -1017,16 +1266,16 @@ ${visualContext}
 
 USER: ${message}
 
-Respond naturally using the individual player statistics when relevant. Be specific with numbers. Add insights and personality. If showing visual data, complement it with analysis, not repetition:`;
+Respond directly to what the user asked. Lead with facts. Be concise but informative:`;
 
     // Try models in order until one works
     let result;
     let usedModel = '';
     let lastError: Error | null = null;
-    
+
     for (let i = currentModelIndex; i < GEMINI_MODELS.length; i++) {
       const modelName = GEMINI_MODELS[i];
-      
+
       try {
         const model = ai.getGenerativeModel({
           model: modelName,
@@ -1036,7 +1285,7 @@ Respond naturally using the individual player statistics when relevant. Be speci
             temperature: personality === 'hype' ? 0.9 : personality === 'analyst' ? 0.3 : 0.7,
           },
         });
-        
+
         result = await model.generateContent(fullPrompt);
         usedModel = modelName;
         currentModelIndex = i;
@@ -1046,11 +1295,11 @@ Respond naturally using the individual player statistics when relevant. Be speci
         lastError = genError;
       }
     }
-    
+
     if (!result) {
       throw new Error(`All AI models failed. Last error: ${lastError?.message || 'Unknown error'}`);
     }
-    
+
     const response = result.response.text();
 
     // If comparison, add verdict to visual
@@ -1075,7 +1324,7 @@ Respond naturally using the individual player statistics when relevant. Be speci
     const errorMsg = (error as Error).message;
     console.error('[AI Chat Error]', errorMsg);
     logger.error('AI chat error', { error: errorMsg });
-    
+
     return NextResponse.json({
       response: "I hit a snag! 🏀 Check ESPN.com for the latest: https://www.espn.com/nba/",
       error: errorMsg,
