@@ -6,7 +6,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { 
+import {
   Trophy, TrendingUp, TrendingDown, Minus, Target, Flame, Shield,
   Activity, Clock, MapPin, Tv, ChevronRight, Users, BarChart3,
   Zap, Star, AlertTriangle, CheckCircle, Calendar
@@ -123,9 +123,10 @@ export interface VisualLeadersData {
   }>;
 }
 
-export type AIVisualResponse = 
+export type AIVisualResponse =
   | { type: 'games'; data: VisualGameData[] }
   | { type: 'game'; data: VisualGameData }
+  | { type: 'game_recap'; data: VisualGameData & { boxscore?: any } }
   | { type: 'player'; data: VisualPlayerData }
   | { type: 'players'; data: VisualPlayerData[] }
   | { type: 'standings'; data: VisualStandingsData[] }
@@ -152,12 +153,12 @@ export interface PlayerComparisonVisual {
 export function GameCard({ game }: { game: VisualGameData }) {
   const isLive = game.status === 'live' || game.status === 'halftime';
   const isFinal = game.status === 'final';
-  
+
   const homeWinning = game.homeTeam.score > game.awayTeam.score;
   const awayWinning = game.awayTeam.score > game.homeTeam.score;
 
   return (
-    <Link 
+    <Link
       href={`/nba/games/${game.gameId}`}
       className="block bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl border border-white/10 hover:border-white/20 transition-all hover:scale-[1.02] overflow-hidden"
     >
@@ -165,16 +166,16 @@ export function GameCard({ game }: { game: VisualGameData }) {
       <div className={cn(
         "px-3 py-1.5 text-xs font-medium flex items-center justify-between",
         isLive ? "bg-red-500/20 text-red-400" :
-        isFinal ? "bg-green-500/20 text-green-400" :
-        "bg-blue-500/20 text-blue-400"
+          isFinal ? "bg-green-500/20 text-green-400" :
+            "bg-blue-500/20 text-blue-400"
       )}>
         <div className="flex items-center gap-2">
           {isLive && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
           <span>
             {game.status === 'live' ? `Q${game.period} ${game.clock}` :
-             game.status === 'halftime' ? 'HALFTIME' :
-             game.status === 'final' ? 'FINAL' :
-             game.clock || 'Scheduled'}
+              game.status === 'halftime' ? 'HALFTIME' :
+                game.status === 'final' ? 'FINAL' :
+                  game.clock || 'Scheduled'}
           </span>
         </div>
         {game.broadcast && <span className="text-white/50">{game.broadcast}</span>}
@@ -282,15 +283,15 @@ export function GamesGrid({ games, title }: { games: VisualGameData[]; title?: s
 // ============================================
 
 // Helper component for stat boxes matching EnhancedPlayerStats style
-function StatBox({ 
-  label, 
-  value, 
+function StatBox({
+  label,
+  value,
   subtext,
   highlight = false,
-  negative = false 
-}: { 
-  label: string; 
-  value: string; 
+  negative = false
+}: {
+  label: string;
+  value: string;
   subtext?: string;
   highlight?: boolean;
   negative?: boolean;
@@ -298,9 +299,8 @@ function StatBox({
   return (
     <div className="bg-white/5 rounded-lg p-2 text-center">
       <p className="text-[10px] text-white/40 uppercase">{label}</p>
-      <p className={`text-sm font-semibold ${
-        negative ? 'text-red-400' : highlight ? 'text-yellow-400' : 'text-white'
-      }`}>
+      <p className={`text-sm font-semibold ${negative ? 'text-red-400' : highlight ? 'text-yellow-400' : 'text-white'
+        }`}>
         {value}
       </p>
       {subtext && <p className="text-[10px] text-white/30">{subtext}</p>}
@@ -311,22 +311,24 @@ function StatBox({
 export function PlayerCard({ player }: { player: VisualPlayerData }) {
   const hasGameStats = !!player.gameStats;
   const useGameStats = hasGameStats;
-  
+
   // Determine which stats to show
   const pts = useGameStats ? (player.gameStats?.points || 0) : (player.stats.ppg || 0);
   const reb = useGameStats ? (player.gameStats?.rebounds || 0) : (player.stats.rpg || 0);
   const ast = useGameStats ? (player.gameStats?.assists || 0) : (player.stats.apg || 0);
-  
+
   // Calculate shooting percentages
+  // NOTE: ESPN returns percentages as whole numbers (e.g., 51.26 not 0.5126)
+  // So we should NOT multiply by 100 again
   const fgPct = useGameStats && player.gameStats?.fga && player.gameStats.fga > 0
     ? ((player.gameStats.fgm / player.gameStats.fga) * 100).toFixed(1)
-    : player.stats.fgPct ? (player.stats.fgPct * 100).toFixed(1) : '0.0';
-  
+    : player.stats.fgPct ? player.stats.fgPct.toFixed(1) : '0.0';
+
   const fg3Pct = useGameStats && player.gameStats?.fg3a && player.gameStats.fg3a > 0
     ? ((player.gameStats.fg3m / player.gameStats.fg3a) * 100).toFixed(1)
-    : player.stats.fg3Pct ? (player.stats.fg3Pct * 100).toFixed(1) : '0.0';
-  
-  const ftPct = player.stats.ftPct ? (player.stats.ftPct * 100).toFixed(1) : '0.0';
+    : player.stats.fg3Pct ? player.stats.fg3Pct.toFixed(1) : '0.0';
+
+  const ftPct = player.stats.ftPct ? player.stats.ftPct.toFixed(1) : '0.0';
 
   return (
     <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-2xl border border-white/10 overflow-hidden max-w-md mx-auto">
@@ -365,7 +367,7 @@ export function PlayerCard({ player }: { player: VisualPlayerData }) {
               </div>
             )}
           </div>
-          
+
           {/* Player Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -373,7 +375,7 @@ export function PlayerCard({ player }: { player: VisualPlayerData }) {
               {player.number && <span className="text-xs text-white/40">#{player.number}</span>}
             </div>
             <p className="text-sm text-white/50">{player.position}</p>
-            
+
             {/* Quick Stats */}
             <div className="flex items-center gap-3 mt-2">
               <div className="text-center">
@@ -403,14 +405,14 @@ export function PlayerCard({ player }: { player: VisualPlayerData }) {
             <StatBox label="AST" value={player.gameStats.assists?.toString() || '0'} />
             <StatBox label="STL" value={player.gameStats.steals?.toString() || '0'} />
             <StatBox label="BLK" value={player.gameStats.blocks?.toString() || '0'} />
-            <StatBox 
-              label="FG" 
-              value={`${player.gameStats.fgm || 0}-${player.gameStats.fga || 0}`} 
+            <StatBox
+              label="FG"
+              value={`${player.gameStats.fgm || 0}-${player.gameStats.fga || 0}`}
               subtext={fgPct + '%'}
             />
-            <StatBox 
-              label="3PT" 
-              value={`${player.gameStats.fg3m || 0}-${player.gameStats.fg3a || 0}`} 
+            <StatBox
+              label="3PT"
+              value={`${player.gameStats.fg3m || 0}-${player.gameStats.fg3a || 0}`}
               subtext={fg3Pct + '%'}
             />
             <StatBox label="FG%" value={fgPct + '%'} />
@@ -486,7 +488,7 @@ export function StatsTable({ table }: { table: VisualStatsTable }) {
                 Stat
               </th>
               {table.headers.map((header, i) => (
-                <th 
+                <th
                   key={i}
                   className="px-4 py-2 text-center text-xs font-medium text-white/60 uppercase tracking-wider"
                 >
@@ -504,7 +506,7 @@ export function StatsTable({ table }: { table: VisualStatsTable }) {
                 {row.values.map((value, j) => {
                   const isHighlight = row.highlight === 'home' && j === 1 || row.highlight === 'away' && j === 0;
                   return (
-                    <td 
+                    <td
                       key={j}
                       className={cn(
                         "px-4 py-3 text-center tabular-nums",
@@ -534,8 +536,8 @@ export function StandingsTable({ standings }: { standings: VisualStandingsData }
       {/* Header */}
       <div className={cn(
         "px-4 py-3 border-b border-white/10",
-        standings.conference === 'East' 
-          ? "bg-gradient-to-r from-blue-500/20 to-blue-600/20" 
+        standings.conference === 'East'
+          ? "bg-gradient-to-r from-blue-500/20 to-blue-600/20"
           : "bg-gradient-to-r from-red-500/20 to-red-600/20"
       )}>
         <div className="flex items-center gap-2">
@@ -560,7 +562,7 @@ export function StandingsTable({ standings }: { standings: VisualStandingsData }
           </thead>
           <tbody className="divide-y divide-white/5">
             {standings.teams.map((team) => (
-              <tr 
+              <tr
                 key={team.abbreviation}
                 className={cn(
                   "hover:bg-white/5 transition-colors",
@@ -572,8 +574,8 @@ export function StandingsTable({ standings }: { standings: VisualStandingsData }
                   <span className={cn(
                     "w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold",
                     team.rank <= 6 ? "bg-green-500/20 text-green-400" :
-                    team.rank <= 10 ? "bg-yellow-500/20 text-yellow-400" :
-                    "bg-white/10 text-white/60"
+                      team.rank <= 10 ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-white/10 text-white/60"
                   )}>
                     {team.rank}
                   </span>
@@ -654,7 +656,7 @@ export function LeadersTable({ leaders }: { leaders: VisualLeadersData }) {
       {/* Players List */}
       <div className="divide-y divide-white/5">
         {leaders.players.map((player, index) => (
-          <div 
+          <div
             key={player.name}
             className="flex items-center gap-3 p-3 hover:bg-white/5 transition-colors"
           >
@@ -662,9 +664,9 @@ export function LeadersTable({ leaders }: { leaders: VisualLeadersData }) {
             <div className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm",
               index === 0 ? "bg-gradient-to-br from-yellow-400 to-yellow-600 text-slate-900" :
-              index === 1 ? "bg-gradient-to-br from-slate-300 to-slate-500 text-slate-900" :
-              index === 2 ? "bg-gradient-to-br from-orange-400 to-orange-600 text-slate-900" :
-              "bg-white/10 text-white/60"
+                index === 1 ? "bg-gradient-to-br from-slate-300 to-slate-500 text-slate-900" :
+                  index === 2 ? "bg-gradient-to-br from-orange-400 to-orange-600 text-slate-900" :
+                    "bg-white/10 text-white/60"
             )}>
               {player.rank}
             </div>
@@ -701,8 +703,8 @@ export function LeadersTable({ leaders }: { leaders: VisualLeadersData }) {
               <span className="text-xl font-bold text-white tabular-nums">{player.value}</span>
               {player.trend && (
                 player.trend === 'up' ? <TrendingUp className="w-4 h-4 text-green-400" /> :
-                player.trend === 'down' ? <TrendingDown className="w-4 h-4 text-red-400" /> :
-                <Minus className="w-4 h-4 text-white/40" />
+                  player.trend === 'down' ? <TrendingDown className="w-4 h-4 text-red-400" /> :
+                    <Minus className="w-4 h-4 text-white/40" />
               )}
             </div>
           </div>
@@ -729,9 +731,9 @@ export function ComparisonCard({ comparison }: { comparison: PlayerComparisonVis
     const bpg = player.stats?.bpg ?? 0;
     const mpg = player.stats?.mpg ?? 0;
     const gamesPlayed = player.stats?.gamesPlayed ?? 0;
-    const fgPct = player.stats?.fgPct ? (player.stats.fgPct * 100) : 0;
-    const fg3Pct = player.stats?.fg3Pct ? (player.stats.fg3Pct * 100) : 0;
-    const ftPct = player.stats?.ftPct ? (player.stats.ftPct * 100) : 0;
+    const fgPct = player.stats?.fgPct ?? 0; // Already a percentage, don't multiply
+    const fg3Pct = player.stats?.fg3Pct ?? 0;
+    const ftPct = player.stats?.ftPct ?? 0;
 
     return (
       <div
@@ -760,7 +762,7 @@ export function ComparisonCard({ comparison }: { comparison: PlayerComparisonVis
                 </div>
               )}
             </div>
-            
+
             {/* Player Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
@@ -768,7 +770,7 @@ export function ComparisonCard({ comparison }: { comparison: PlayerComparisonVis
                 {player.number && <span className="text-xs text-white/40">#{player.number}</span>}
               </div>
               <p className="text-sm text-white/50">{player.position}</p>
-              
+
               {/* Quick Stats - EXACT match to EnhancedPlayerStats */}
               <div className="flex items-center gap-3 mt-2">
                 <div className="text-center">
@@ -875,6 +877,16 @@ export function AIVisualRenderer({ visual }: { visual: AIVisualResponse }) {
       return <GamesGrid games={visual.data} title="Today's Games" />;
     case 'game':
       return <GameCard game={visual.data} />;
+    case 'game_recap':
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Calendar className="w-4 h-4 text-orange-400" />
+            <h3 className="text-sm font-semibold text-white">Game Recap</h3>
+          </div>
+          <GameCard game={visual.data} />
+        </div>
+      );
     case 'player':
       return <PlayerCard player={visual.data} />;
     case 'players':
