@@ -1,18 +1,20 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  Send, Mic, Settings, Sparkles, Volume2, Beer, 
+import {
+  Send, Mic, Settings, Sparkles, Volume2, Beer,
   Megaphone, Radio, MessageSquare, ChevronDown,
   Loader2, Bot, User, X, Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AIVisualRenderer, AIVisualResponse } from './ChatVisuals';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  visual?: AIVisualResponse | null;
 }
 
 interface ChatSettings {
@@ -50,7 +52,7 @@ export function HubChatbot() {
     personality: 'default',
     length: 'medium',
   });
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -96,6 +98,7 @@ export function HubChatbot() {
         role: 'assistant',
         content: data.response || data.error || 'Sorry, I encountered an error.',
         timestamp: new Date(),
+        visual: data.visual || null,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -142,7 +145,7 @@ export function HubChatbot() {
               <p className="text-xs text-white/50">{currentPersonality?.description}</p>
             </div>
           </div>
-          
+
           <button
             onClick={() => setShowSettings(!showSettings)}
             className={cn(
@@ -216,7 +219,7 @@ export function HubChatbot() {
               <p className="text-white/50 text-sm mb-4 max-w-sm">
                 Scores, standings, player stats, game analysis — I've got you covered.
               </p>
-              
+
               {/* Example questions */}
               <div className="flex flex-wrap gap-2 justify-center">
                 {EXAMPLE_QUESTIONS.map((q) => (
@@ -242,8 +245,8 @@ export function HubChatbot() {
                 >
                   <div className={cn(
                     "p-2 rounded-lg shrink-0",
-                    message.role === 'user' 
-                      ? "bg-blue-500/20" 
+                    message.role === 'user'
+                      ? "bg-blue-500/20"
                       : "bg-gradient-to-br from-orange-500/20 to-blue-500/20"
                   )}>
                     {message.role === 'user' ? (
@@ -252,13 +255,19 @@ export function HubChatbot() {
                       <Bot className="w-4 h-4 text-orange-400" />
                     )}
                   </div>
-                  
+
                   <div className={cn(
                     "max-w-[80%] rounded-xl px-4 py-3",
                     message.role === 'user'
                       ? "bg-blue-500/20 text-white"
                       : "bg-white/5 text-white/90"
                   )}>
+                    {/* Render visual if present */}
+                    {message.visual && (
+                      <div className="mb-3 -mx-2">
+                        <AIVisualRenderer visual={message.visual} />
+                      </div>
+                    )}
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     <p className="text-[10px] text-white/30 mt-1">
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -266,7 +275,7 @@ export function HubChatbot() {
                   </div>
                 </div>
               ))}
-              
+
               {isLoading && (
                 <div className="flex gap-3">
                   <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500/20 to-blue-500/20">
@@ -280,7 +289,7 @@ export function HubChatbot() {
                   </div>
                 </div>
               )}
-              
+
               <div ref={messagesEndRef} />
             </>
           )}
