@@ -116,7 +116,7 @@ let logDirReady: Promise<void> | null = null;
 
 async function ensureLogDir(): Promise<void> {
   if (!logDirReady) {
-    logDirReady = fs.mkdir(LOG_DIR, { recursive: true }).catch(() => {});
+    logDirReady = fs.mkdir(LOG_DIR, { recursive: true }).then(() => {}).catch(() => {});
   }
   await logDirReady;
 }
