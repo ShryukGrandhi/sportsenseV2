@@ -395,6 +395,71 @@ const PLAYER_NAME_MAP: Record<string, string> = {
 };
 
 // ============================================
+// PLAYER NAME RESOLUTION (Fuzzy Matching)
+// ============================================
+
+// Levenshtein distance for fuzzy matching
+function levenshteinDistance(a: string, b: string): number {
+  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,
+        matrix[j - 1][i] + 1,
+        matrix[j - 1][i - 1] + cost
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// Resolve player name using exact match, partial match, and fuzzy matching
+// This ensures player cards use the same logic as AI text recognition
+function resolvePlayerName(rawName: string): string {
+  const lowerName = rawName.toLowerCase().trim();
+
+  // 1. Exact match in PLAYER_NAME_MAP
+  if (PLAYER_NAME_MAP[lowerName]) {
+    console.log(`[Name Resolution] Exact match: "${rawName}" → "${PLAYER_NAME_MAP[lowerName]}"`);
+    return PLAYER_NAME_MAP[lowerName];
+  }
+
+  // 2. Partial match (name contains a known key or key contains name)
+  for (const [key, fullName] of Object.entries(PLAYER_NAME_MAP)) {
+    if (lowerName.includes(key) || key.includes(lowerName)) {
+      console.log(`[Name Resolution] Partial match: "${rawName}" → "${fullName}"`);
+      return fullName;
+    }
+  }
+
+  // 3. Fuzzy match using Levenshtein distance (for misspellings like "antekoupmo")
+  let bestMatch: string | null = null;
+  let bestDistance = Infinity;
+
+  for (const [key, fullName] of Object.entries(PLAYER_NAME_MAP)) {
+    const distance = levenshteinDistance(lowerName, key);
+    // Allow up to 3 character differences for longer names, 2 for shorter
+    const threshold = key.length > 6 ? 3 : 2;
+    if (distance <= threshold && distance < bestDistance) {
+      bestDistance = distance;
+      bestMatch = fullName;
+    }
+  }
+
+  if (bestMatch) {
+    console.log(`[Name Resolution] Fuzzy match: "${rawName}" → "${bestMatch}" (distance: ${bestDistance})`);
+    return bestMatch;
+  }
+
+  // 4. No match found - return original with capitalization fix
+  console.log(`[Name Resolution] No match found for "${rawName}", using as-is`);
+  return rawName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
+// ============================================
 // TEAM MAPPINGS
 // ============================================
 
@@ -950,37 +1015,6 @@ function findPlayerInBoxscores(playerName: string, liveContext: string): string 
   return null;
 }
 
-// Simple Levenshtein distance for fuzzy matching
-function levenshteinDistance(a: string, b: string): number {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-
-  const matrix: number[][] = [];
-
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-
-  return matrix[b.length][a.length];
-}
-
 function convertGameToVisual(game: LiveGameData): VisualGameData {
   const getTeamLogo = (abbr: string) =>
     `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
@@ -1084,7 +1118,9 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
       }
 
       case 'player': {
-        const player = await fetchFullPlayerData(intent.name);
+        // Resolve player name using fuzzy matching before API call
+        const resolvedName = resolvePlayerName(intent.name);
+        const player = await fetchFullPlayerData(resolvedName);
         if (!player) {
           // Always return a visual for player queries, even if data fetch fails
           // Return a minimal player object so the visual can still be shown
@@ -1132,9 +1168,12 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
       }
 
       case 'comparison': {
+        // Resolve player names using fuzzy matching before API calls
+        const resolvedPlayer1 = resolvePlayerName(intent.player1);
+        const resolvedPlayer2 = resolvePlayerName(intent.player2);
         const [player1, player2] = await Promise.all([
-          fetchFullPlayerData(intent.player1),
-          fetchFullPlayerData(intent.player2),
+          fetchFullPlayerData(resolvedPlayer1),
+          fetchFullPlayerData(resolvedPlayer2),
         ]);
 
         // Always return a visual for comparison queries, even if data fetch fails
@@ -1207,11 +1246,10 @@ try {
 }
 
 const GEMINI_MODELS = [
-  'gemini-2.0-flash-exp',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash-8b',
-  'gemini-1.5-pro-latest',
-  'gemini-1.0-pro',
+  'gemini-2.5-pro',              // NEW: Smarter, deeper reasoning
+  'gemini-2.0-flash-exp',        // Fast fallback
+  'gemini-1.5-pro-latest',       // Pro fallback
+  'gemini-1.5-flash-latest',     // Flash fallback
 ];
 
 let currentModelIndex = 0;
@@ -1224,9 +1262,19 @@ const SAFETY_SETTINGS = [
 ];
 
 const PERSONALITY_PROMPTS: Record<string, string> = {
-  default: `You are Playmaker AI, a knowledgeable sports companion who gets straight to the point.
-Lead with FACTS and STATS. Skip filler phrases like "Great question!" or "That's interesting!"
-Be conversational but substantive. Every sentence should add value.`,
+  default: `You are Playmaker AI, the SMARTEST sports analyst ever created.
+
+CRITICAL INSTRUCTIONS:
+- For analytical questions like "who's the best X", think deeply and systematically
+- Consider MULTIPLE factors: stats, efficiency, context, sample size, recent trends
+- Use ACTUAL DATA from the provided context - cite specific numbers
+- For player comparisons, analyze advanced metrics not just box scores
+- For "best" questions, rank with reasoning, don't just name one player
+- Skip filler phrases - EVERY sentence must add value
+- Lead with your conclusion, then explain why with data
+
+You have access to real-time NBA data including games, stats, standings, and player info.
+When given context data, USE IT specifically. Don't make up numbers.`,
 
   hype: `You are PLAYMAKER AI and you are HYPED! 🔥
 Lead with the stats that matter, then bring the energy!
@@ -1242,8 +1290,9 @@ Lead with key stats and context before painting the picture.
 Use broadcaster phrases but anchor them in real data.`,
 
   analyst: `You are Playmaker AI in full analyst mode.
-Lead with advanced statistics: efficiency, plus/minus, pace, shot selection.
-Every claim needs data backing. Be direct and analytical.`,
+Lead with advanced statistics: efficiency, plus/minus, pace, shot selection, true shooting %.
+Consider context: opponent difficulty, home vs away, clutch situations.
+Every claim needs data backing. Think like an NBA front office.`,
 };
 
 const LENGTH_CONFIG: Record<string, { maxTokens: number; instruction: string }> = {
