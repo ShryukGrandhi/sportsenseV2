@@ -299,7 +299,7 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 type UserIntent = 
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team' | 'date'; team?: string; date?: string; dateDisplay?: string }
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
-  | { type: 'player'; name: string }
+  | { type: 'player'; name: string; season?: number; seasonDisplay?: string }
   | { type: 'comparison'; player1: string; player2: string; gameContext?: { team1?: string; team2?: string; date?: string; dateDisplay?: string } }
   | { type: 'team'; name: string }
   | { type: 'leaders'; category?: string }
@@ -390,12 +390,33 @@ function detectUserIntent(message: string): UserIntent {
     return { type: 'standings', conference: 'both' };
   }
   
+  // Extract season from message (e.g., "2007-2008", "07-08", "2007", "2008 season")
+  const seasonMatch = message.match(/(?:season\s+)?(\d{4})(?:-(\d{2,4}))?/i) || message.match(/(\d{2})-(\d{2})\s+season/i);
+  let extractedSeason: number | undefined;
+  let seasonDisplay: string | undefined;
+  
+  if (seasonMatch) {
+    const year1 = parseInt(seasonMatch[1]);
+    const year2 = seasonMatch[2] ? parseInt(seasonMatch[2]) : null;
+    
+    if (year2) {
+      // Format: "2007-2008" or "07-08"
+      const seasonStartYear = year1 < 100 ? 2000 + year1 : year1;
+      extractedSeason = seasonStartYear;
+      seasonDisplay = `${seasonStartYear}-${String(seasonStartYear + 1).slice(-2)}`;
+    } else if (year1 >= 1946 && year1 <= new Date().getFullYear() + 1) {
+      // Single year format: "2007" or "2007 season"
+      extractedSeason = year1;
+      seasonDisplay = `${year1}-${String(year1 + 1).slice(-2)}`;
+    }
+  }
+
   // Check for specific player info BEFORE checking for games
   // This ensures player queries get player visuals even if they mention "game" or "today"
   const playerQueryPatterns = [
     /how (?:many|did|is|was|does|has)\s+(?:\w+\s+){0,3}(\w+(?:\s+\w+)?)\s+(?:score|play|do|perform|have)/i,
-    /(?:tell me about|show me|what about|who is|stats for|statistics for)\s+(.+?)(?:\?|$)/i,
-    /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages)/i,
+    /(?:tell me about|show me|what about|who is|stats for|statistics for|give me the stats of)\s+(.+?)(?:\s+in\s+\d{4}(?:-\d{2,4})?\s+season)?(?:\?|$)/i,
+    /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages)(?:\s+in\s+\d{4}(?:-\d{2,4})?\s+season)?/i,
     /how\s+(?:is|was|did)\s+(.+?)\s+(?:playing|doing|perform)/i,
   ];
   
@@ -403,15 +424,17 @@ function detectUserIntent(message: string): UserIntent {
     const match = lowerMsg.match(pattern);
     if (match) {
       let playerName = match[1].trim().replace(/[?!.,\'s]/g, '').trim();
+      // Remove season info from player name if it was captured
+      playerName = playerName.replace(/\s+in\s+\d{4}(?:-\d{2,4})?\s+season/i, '').trim();
       // Check if it's a known player
       const fullName = PLAYER_NAME_MAP[playerName.toLowerCase()];
       if (fullName) {
-        return { type: 'player', name: fullName };
+        return { type: 'player', name: fullName, season: extractedSeason, seasonDisplay };
       }
       // Check partial matches in player map
       for (const [nickname, full] of Object.entries(PLAYER_NAME_MAP)) {
         if (playerName.toLowerCase().includes(nickname) || nickname.includes(playerName.toLowerCase())) {
-          return { type: 'player', name: full };
+          return { type: 'player', name: full, season: extractedSeason, seasonDisplay };
         }
       }
     }
@@ -420,7 +443,7 @@ function detectUserIntent(message: string): UserIntent {
   // Check for known player names directly
   for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
     if (lowerMsg.includes(nickname)) {
-      return { type: 'player', name: fullName };
+      return { type: 'player', name: fullName, season: extractedSeason, seasonDisplay };
     }
   }
   
@@ -921,7 +944,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
       }
       
       case 'player': {
-        const player = await fetchFullPlayerData(intent.name);
+        const player = await fetchFullPlayerData(intent.name, intent.season);
         if (!player) {
           // Always return a visual for player queries, even if data fetch fails
           // Return a minimal player object so the visual can still be shown
@@ -1427,19 +1450,21 @@ export async function POST(request: Request) {
           break;
         case 'player':
           const p = visualResponse.data;
+          const requestedSeason = (intent as any).seasonDisplay || (intent as any).season 
+            ? `the ${(intent as any).seasonDisplay || `${(intent as any).season}-${String((intent as any).season! + 1).slice(-2)}`} season`
+            : 'the current 2025-26 season';
           visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a player card for ${p.name} (${p.team}) with the following ESPN stats:\n`;
           visualContext += `- PPG: ${p.stats.ppg}, RPG: ${p.stats.rpg}, APG: ${p.stats.apg}\n`;
           visualContext += `- SPG: ${p.stats.spg}, BPG: ${p.stats.bpg}, MPG: ${p.stats.mpg}\n`;
           visualContext += `- FG%: ${p.stats.fgPct}%, 3P%: ${p.stats.fg3Pct}%, FT%: ${p.stats.ftPct}%\n`;
           visualContext += `- Games Played: ${p.stats.gamesPlayed}\n\n`;
-          visualContext += `CRITICAL: These ESPN stats may be incorrect, outdated, or from the wrong season (2025-26). `;
-          visualContext += `Use your extensive knowledge base to verify the CORRECT current season stats for ${p.name}. `;
-          visualContext += `If you know with high confidence that the correct 2025-26 season stats differ from ESPN's data above, `;
-          visualContext += `MUST include them at the very end of your response in this exact JSON format (no other text after the JSON):\n\n`;
-          visualContext += `\`\`\`json\n{"correctedStats": {"ppg": 21.7, "rpg": 5.4, "apg": 6.8, "spg": 1.0, "bpg": 0.6, "mpg": 35.0, "fgPct": 51.2, "fg3Pct": 38.0, "ftPct": 75.0, "gamesPlayed": 35}}\n\`\`\`\n\n`;
-          visualContext += `ONLY include the correctedStats JSON if you're confident the stats are more accurate than ESPN's data. `;
-          visualContext += `If ESPN's data appears correct or you're unsure, provide analysis based on the ESPN data without including the JSON block. `;
-          visualContext += `The corrected stats will automatically update the player card if provided.`;
+          visualContext += `CRITICAL: The user is asking about ${requestedSeason}. These ESPN stats may be incorrect, outdated, or from the wrong season. `;
+          visualContext += `Use your extensive knowledge base to provide the CORRECT stats for ${p.name} for ${requestedSeason}. `;
+          visualContext += `You MUST include the accurate stats at the very end of your response in this exact JSON format (no other text after the JSON):\n\n`;
+          visualContext += `\`\`\`json\n{"correctedStats": {"ppg": 30.0, "rpg": 7.9, "apg": 7.2, "spg": 1.8, "bpg": 1.1, "mpg": 40.4, "fgPct": 48.4, "fg3Pct": 31.5, "ftPct": 71.2, "gamesPlayed": 75}, "team": "Cleveland Cavaliers"}\n\`\`\`\n\n`;
+          visualContext += `IMPORTANT: Include the "team" field in the JSON with the correct team name for ${requestedSeason}. `;
+          visualContext += `ALWAYS provide correctedStats JSON - use your knowledge base to provide accurate stats for the requested season. `;
+          visualContext += `The corrected stats and team will automatically update the player card if provided.`;
           break;
         case 'comparison':
           const { player1, player2, categories } = visualResponse.data;
@@ -1686,7 +1711,7 @@ If the user asked about a specific date, acknowledge that date and reference gam
       // Try to extract corrected stats from Gemini's response
       // Match JSON code blocks or inline JSON
       const jsonBlockMatch = response.match(/```json\s*(\{[\s\S]*?\})\s*```/);
-      const inlineJsonMatch = response.match(/\{"correctedStats":\s*\{[\s\S]*?\}\}/);
+      const inlineJsonMatch = response.match(/\{"correctedStats":\s*\{[\s\S]*?\}(?:,\s*"team":\s*"[^"]*")?\}/);
       
       const jsonStr = jsonBlockMatch?.[1] || inlineJsonMatch?.[0];
       
@@ -1697,39 +1722,78 @@ If the user asked about a specific date, acknowledge that date and reference gam
           if (parsed.correctedStats && typeof parsed.correctedStats === 'object') {
             const corrected = parsed.correctedStats;
             const originalStats = { ...visualResponse.data.stats }; // Save original for logging
+            const originalTeam = visualResponse.data.team;
             console.log(`[AI Chat] Gemini provided corrected stats:`, corrected);
             console.log(`[AI Chat] Original ESPN stats:`, originalStats);
+            console.log(`[AI Chat] Original team:`, originalTeam);
             
-            // Update visual response with corrected stats (only update if value is provided and not 0)
+            // Update visual response with corrected stats - ALWAYS use Gemini's values if provided
             const updatedStats: ExtendedPlayerStats = {
-              ppg: corrected.ppg !== undefined && corrected.ppg > 0 ? corrected.ppg : originalStats.ppg,
-              rpg: corrected.rpg !== undefined && corrected.rpg > 0 ? corrected.rpg : originalStats.rpg,
-              apg: corrected.apg !== undefined && corrected.apg > 0 ? corrected.apg : originalStats.apg,
-              spg: corrected.spg !== undefined && corrected.spg > 0 ? corrected.spg : originalStats.spg,
-              bpg: corrected.bpg !== undefined && corrected.bpg > 0 ? corrected.bpg : originalStats.bpg,
-              mpg: corrected.mpg !== undefined && corrected.mpg > 0 ? corrected.mpg : originalStats.mpg,
-              fgPct: corrected.fgPct !== undefined && corrected.fgPct > 0 ? corrected.fgPct : originalStats.fgPct,
-              fg3Pct: corrected.fg3Pct !== undefined && corrected.fg3Pct > 0 ? corrected.fg3Pct : originalStats.fg3Pct,
-              ftPct: corrected.ftPct !== undefined && corrected.ftPct > 0 ? corrected.ftPct : originalStats.ftPct,
-              gamesPlayed: corrected.gamesPlayed !== undefined && corrected.gamesPlayed > 0 ? corrected.gamesPlayed : originalStats.gamesPlayed,
+              ppg: corrected.ppg !== undefined ? corrected.ppg : originalStats.ppg,
+              rpg: corrected.rpg !== undefined ? corrected.rpg : originalStats.rpg,
+              apg: corrected.apg !== undefined ? corrected.apg : originalStats.apg,
+              spg: corrected.spg !== undefined ? corrected.spg : originalStats.spg,
+              bpg: corrected.bpg !== undefined ? corrected.bpg : originalStats.bpg,
+              mpg: corrected.mpg !== undefined ? corrected.mpg : originalStats.mpg,
+              fgPct: corrected.fgPct !== undefined ? corrected.fgPct : originalStats.fgPct,
+              fg3Pct: corrected.fg3Pct !== undefined ? corrected.fg3Pct : originalStats.fg3Pct,
+              ftPct: corrected.ftPct !== undefined ? corrected.ftPct : originalStats.ftPct,
+              gamesPlayed: corrected.gamesPlayed !== undefined ? corrected.gamesPlayed : originalStats.gamesPlayed,
             };
             
             // Validate corrected stats
             const validatedStats = validatePlayerStats(updatedStats);
             visualResponse.data.stats = validatedStats;
             
+            // Update team if provided by Gemini
+            if (parsed.team && typeof parsed.team === 'string') {
+              // Find the team logo for the corrected team
+              const teamNameLower = parsed.team.toLowerCase();
+              let team = Object.values(NBA_TEAMS).find(t => 
+                t.name.toLowerCase() === teamNameLower ||
+                t.abbreviation.toLowerCase() === teamNameLower
+              );
+              
+              // Try partial matching if exact match failed
+              if (!team) {
+                for (const key of Object.keys(NBA_TEAMS)) {
+                  const teamData = NBA_TEAMS[key];
+                  if (teamNameLower.includes(key) || key.includes(teamNameLower.split(' ')[0]) ||
+                      teamData.name.toLowerCase().includes(teamNameLower.split(' ')[0]) ||
+                      teamNameLower.includes(teamData.name.toLowerCase().split(' ')[0])) {
+                    team = teamData;
+                    break;
+                  }
+                }
+              }
+              
+              if (team) {
+                visualResponse.data.team = team.name;
+                visualResponse.data.teamLogo = `https://a.espncdn.com/i/teamlogos/nba/500/${team.abbreviation.toLowerCase()}.png`;
+                console.log(`[AI Chat] Updated team from "${originalTeam}" to "${team.name}" (${team.abbreviation})`);
+              } else {
+                visualResponse.data.team = parsed.team;
+                console.log(`[AI Chat] Updated team from "${originalTeam}" to "${parsed.team}" (exact match not found, using as-is)`);
+              }
+            }
+            
             console.log(`[AI Chat] Updated player card with Gemini-corrected stats:`, {
               before: originalStats,
               after: validatedStats,
+              teamBefore: originalTeam,
+              teamAfter: visualResponse.data.team,
               changes: {
                 ppg: originalStats.ppg !== validatedStats.ppg ? `${originalStats.ppg} → ${validatedStats.ppg}` : 'unchanged',
                 rpg: originalStats.rpg !== validatedStats.rpg ? `${originalStats.rpg} → ${validatedStats.rpg}` : 'unchanged',
                 apg: originalStats.apg !== validatedStats.apg ? `${originalStats.apg} → ${validatedStats.apg}` : 'unchanged',
+                fgPct: originalStats.fgPct !== validatedStats.fgPct ? `${originalStats.fgPct}% → ${validatedStats.fgPct}%` : 'unchanged',
+                fg3Pct: originalStats.fg3Pct !== validatedStats.fg3Pct ? `${originalStats.fg3Pct}% → ${validatedStats.fg3Pct}%` : 'unchanged',
+                gamesPlayed: originalStats.gamesPlayed !== validatedStats.gamesPlayed ? `${originalStats.gamesPlayed} → ${validatedStats.gamesPlayed}` : 'unchanged',
               },
             });
             
             // Remove the JSON block from the response text so it doesn't show to user
-            response = response.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '').replace(/\{"correctedStats":\s*\{[\s\S]*?\}\}/g, '').trim();
+            response = response.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '').replace(/\{"correctedStats":\s*\{[\s\S]*?\}(?:,\s*"team":\s*"[^"]*")?\}/g, '').trim();
           }
         } catch (parseError) {
           console.error('[AI Chat] Failed to parse corrected stats from Gemini:', parseError);
