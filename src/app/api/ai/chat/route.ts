@@ -588,71 +588,12 @@ function detectUserIntent(message: string): UserIntent {
     return { type: 'standings', conference: 'both' };
   }
 
-  // Check for specific player info BEFORE checking for games
-  // This ensures player queries get player visuals even if they mention "game" or "today"
-  const playerQueryPatterns = [
-    /how (?:many|did|is|was|does|has)\s+(?:\w+\s+){0,3}(\w+(?:\s+\w+)?)\s+(?:score|play|do|perform|have|average)/i,
-    /(?:tell me about|show me|what about|who is|stats for|statistics for|info on|information on)\s+(.+?)(?:\?|$)/i,
-    /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages|season|career)/i,
-    /how\s+(?:is|was|did)\s+(.+?)\s+(?:playing|doing|perform)/i,
-    /what(?:'s| is| are)\s+(.+?)'?s?\s+(?:stats|numbers|averages|ppg|rpg|apg)/i,
-    /give me\s+(.+?)'?s?\s+(?:stats|numbers|info)/i,
-    /(\w+(?:\s+\w+)?)\s+(?:scoring|averaging|putting up|getting)/i,
-  ];
-
-  for (const pattern of playerQueryPatterns) {
-    const match = lowerMsg.match(pattern);
-    if (match) {
-      let playerName = match[1].trim().replace(/[?!.,\'s]/g, '').trim();
-      // Check if it's a known player (exact match first)
-      const fullName = PLAYER_NAME_MAP[playerName.toLowerCase()];
-      if (fullName) {
-        return { type: 'player', name: fullName };
-      }
-      // Check partial matches in player map
-      for (const [nickname, full] of Object.entries(PLAYER_NAME_MAP)) {
-        if (playerName.toLowerCase().includes(nickname) || nickname.includes(playerName.toLowerCase())) {
-          return { type: 'player', name: full };
-        }
-      }
-      // Use fuzzy matching for misspellings
-      for (const [nickname, full] of Object.entries(PLAYER_NAME_MAP)) {
-        if (levenshteinDistance(playerName.toLowerCase(), nickname) <= 2) {
-          console.log(`[Intent] Fuzzy matched "${playerName}" to "${full}"`);
-          return { type: 'player', name: full };
-        }
-      }
-    }
-  }
-
-  // Check for known player names directly (including fuzzy matching)
-  for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
-    if (lowerMsg.includes(nickname)) {
-      return { type: 'player', name: fullName };
-    }
-  }
-
-  // Fuzzy match player names in the message
-  const words = lowerMsg.split(/\s+/);
-  for (let i = 0; i < words.length; i++) {
-    // Check single words and two-word combinations
-    const singleWord = words[i].replace(/[?!.,]/g, '');
-    const twoWords = i < words.length - 1 ? `${singleWord} ${words[i + 1].replace(/[?!.,]/g, '')}` : '';
-
-    for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
-      if (levenshteinDistance(singleWord, nickname) <= 2 && singleWord.length > 3) {
-        console.log(`[Intent] Fuzzy matched word "${singleWord}" to "${fullName}"`);
-        return { type: 'player', name: fullName };
-      }
-      if (twoWords && levenshteinDistance(twoWords, nickname) <= 2) {
-        console.log(`[Intent] Fuzzy matched phrase "${twoWords}" to "${fullName}"`);
-        return { type: 'player', name: fullName };
-      }
-    }
-  }
+  // ============================================
+  // GAME/DATE DETECTION MUST COME FIRST
+  // Otherwise fuzzy player matching catches random words
+  // ============================================
 
   // Check for game recap requests (specific game on specific date)
-  // This should come BEFORE general game checks
   const recapKeywords = ['recap', 'summary', 'how did', 'what happened', 'result', 'highlights', 'all the games', 'all games'];
   const hasRecapKeyword = recapKeywords.some(kw => lowerMsg.includes(kw));
   const parsedDate = parseDateFromMessage(message);
@@ -683,29 +624,86 @@ function detectUserIntent(message: string): UserIntent {
       console.log(`[Intent] All games recap detected for ${dateInfo.dateStr}`);
       return {
         type: 'games',
-        filter: 'date' as any, // Special filter for historical date
+        filter: 'date' as any,
         dateStr: dateInfo.dateStr,
         date: dateInfo.date.toDateString()
-      } as any; // Extended games type with date
+      } as any;
     }
   }
 
-  // Check for games/scores (after player check)
-  // Be more specific about game-related queries
+  // Check for games/scores
   const gameKeywords = ['score', 'playing tonight', 'playing today', 'live game', 'current game',
     'what games', 'any games', 'games tonight', 'games today', 'games on'];
   const hasGameKeyword = gameKeywords.some(kw => lowerMsg.includes(kw));
 
   if (hasGameKeyword || (lowerMsg.includes('live') && !lowerMsg.includes('live up to'))) {
-    // Check for specific team
     for (const [key, team] of Object.entries(NBA_TEAMS)) {
       if (lowerMsg.includes(key)) {
         return { type: 'games', filter: 'team', team: team.abbreviation };
       }
     }
-
     if (lowerMsg.includes('live')) return { type: 'games', filter: 'live' };
     return { type: 'games', filter: 'today' };
+  }
+
+  // ============================================
+  // PLAYER DETECTION AFTER GAME CHECKS
+  // ============================================
+
+  // Check for specific player info
+  const playerQueryPatterns = [
+    /how (?:many|did|is|was|does|has)\s+(?:\w+\s+){0,3}(\w+(?:\s+\w+)?)\s+(?:score|play|do|perform|have|average)/i,
+    /(?:tell me about|show me|what about|who is|stats for|statistics for|info on|information on)\s+(.+?)(?:\?|$)/i,
+    /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages|season|career)/i,
+    /how\s+(?:is|was|did)\s+(.+?)\s+(?:playing|doing|perform)/i,
+    /what(?:'s| is| are)\s+(.+?)'?s?\s+(?:stats|numbers|averages|ppg|rpg|apg)/i,
+    /give me\s+(.+?)'?s?\s+(?:stats|numbers|info)/i,
+    /(\w+(?:\s+\w+)?)\s+(?:scoring|averaging|putting up|getting)/i,
+  ];
+
+  for (const pattern of playerQueryPatterns) {
+    const match = lowerMsg.match(pattern);
+    if (match) {
+      let playerName = match[1].trim().replace(/[?!.,\'s]/g, '').trim();
+      const fullName = PLAYER_NAME_MAP[playerName.toLowerCase()];
+      if (fullName) {
+        return { type: 'player', name: fullName };
+      }
+      for (const [nickname, full] of Object.entries(PLAYER_NAME_MAP)) {
+        if (playerName.toLowerCase().includes(nickname) || nickname.includes(playerName.toLowerCase())) {
+          return { type: 'player', name: full };
+        }
+      }
+      for (const [nickname, full] of Object.entries(PLAYER_NAME_MAP)) {
+        if (levenshteinDistance(playerName.toLowerCase(), nickname) <= 2) {
+          return { type: 'player', name: full };
+        }
+      }
+    }
+  }
+
+  // Check for known player names directly
+  for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
+    if (lowerMsg.includes(nickname)) {
+      return { type: 'player', name: fullName };
+    }
+  }
+
+  // Fuzzy match player names - but ONLY for longer words to avoid false positives
+  const words = lowerMsg.split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const singleWord = words[i].replace(/[?!.,]/g, '');
+    const twoWords = i < words.length - 1 ? `${singleWord} ${words[i + 1].replace(/[?!.,]/g, '')}` : '';
+
+    for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
+      // Only fuzzy match for words 5+ chars to avoid false positives
+      if (singleWord.length >= 5 && levenshteinDistance(singleWord, nickname) <= 2) {
+        return { type: 'player', name: fullName };
+      }
+      if (twoWords && levenshteinDistance(twoWords, nickname) <= 2) {
+        return { type: 'player', name: fullName };
+      }
+    }
   }
 
   // Check for team info
