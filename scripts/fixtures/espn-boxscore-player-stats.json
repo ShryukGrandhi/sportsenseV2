@@ -1,0 +1,45 @@
+{
+  "labels": [
+    "MIN",
+    "FG",
+    "3PT",
+    "FT",
+    "OREB",
+    "DREB",
+    "REB",
+    "AST",
+    "STL",
+    "BLK",
+    "TO",
+    "PF",
+    "+/-",
+    "PTS"
+  ],
+  "players": [
+    {
+      "athlete": {
+        "id": "123",
+        "displayName": "Test Player",
+        "shortName": "T. Player",
+        "jersey": "23",
+        "position": { "abbreviation": "F" }
+      },
+      "stats": [
+        "44",
+        "11-19",
+        "3-7",
+        "4-5",
+        "2",
+        "11",
+        "13",
+        "1",
+        "1",
+        "0",
+        "4",
+        "2",
+        "-1",
+        "29"
+      ]
+    }
+  ]
+}

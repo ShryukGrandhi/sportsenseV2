@@ -273,6 +273,7 @@ async function buildGameContext(
 }
 
 export async function POST(request: NextRequest) {
+  const start = Date.now();
   if (!isAIAvailable()) {
     return NextResponse.json<APIResponse<null>>({
       success: false,
@@ -318,6 +319,7 @@ export async function POST(request: NextRequest) {
     const cacheKey = getSummaryCacheKey({ gameId, type, homeTeamAbbr, awayTeamAbbr, gameDate });
     const cached = await getCache<SummaryCacheEntry>(cacheKey);
     if (cached) {
+      logger.cache.hit(cacheKey);
       return NextResponse.json<APIResponse<{ summary: string; type: string }>>({
         success: true,
         data: {
@@ -331,6 +333,7 @@ export async function POST(request: NextRequest) {
         },
       });
     }
+    logger.cache.miss(cacheKey);
 
     const dateRange = getDateRange(gameDate);
     const teamFilters = homeTeamAbbr && awayTeamAbbr
@@ -498,5 +501,10 @@ export async function POST(request: NextRequest) {
         message: 'Failed to generate summary',
       },
     }, { status: 500 });
+  } finally {
+    logger.info('API timing', {
+      route: '/api/ai/summary',
+      ms: Date.now() - start,
+    });
   }
 }

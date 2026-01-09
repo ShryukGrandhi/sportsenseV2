@@ -1169,9 +1169,16 @@ try {
   ai = null;
 }
 
-const GEMINI_MODELS = [
+const DEFAULT_GEMINI_MODELS = [
   'gemini-2.5-pro',
+  'gemini-2.5-flash',
 ];
+const GEMINI_MODELS = (process.env.GEMINI_MODELS || '')
+  .split(',')
+  .map((model) => model.trim())
+  .filter(Boolean);
+const MODELS_IN_USE = GEMINI_MODELS.length > 0 ? GEMINI_MODELS : DEFAULT_GEMINI_MODELS;
+console.log('[AI Module] Gemini models in use:', MODELS_IN_USE.join(', '));
 
 let currentModelIndex = 0;
 
@@ -1287,6 +1294,8 @@ interface ChatRequest {
 
 export async function POST(request: Request) {
   console.log('[AI Chat] Received request');
+  const start = Date.now();
+  let status = 200;
   
   let parsedMessage = '';
   
@@ -1296,6 +1305,7 @@ export async function POST(request: Request) {
       body = await request.json();
       parsedMessage = body.message || '';
     } catch (parseError) {
+      status = 400;
       return NextResponse.json({ 
         error: 'Invalid JSON in request body',
         response: "I couldn't understand your request. Please try again!"
@@ -1313,6 +1323,7 @@ export async function POST(request: Request) {
     } = body;
 
     if (!message) {
+      status = 400;
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
@@ -1677,8 +1688,8 @@ If the user asked about a specific date, acknowledge that date and reference gam
     let usedModel = '';
     let lastError: Error | null = null;
     
-    for (let i = currentModelIndex; i < GEMINI_MODELS.length; i++) {
-      const modelName = GEMINI_MODELS[i];
+    for (let i = currentModelIndex; i < MODELS_IN_USE.length; i++) {
+      const modelName = MODELS_IN_USE[i];
       
       try {
         if (!chatAI) throw new Error('AI not initialized');
@@ -1978,5 +1989,11 @@ If the user asked about a specific date, acknowledge that date and reference gam
       error: errorMsg,
       sourceUrl: 'https://www.espn.com/nba/',
     }, { status: 200 });
+  } finally {
+    logger.info('API timing', {
+      route: '/api/ai/chat',
+      status,
+      ms: Date.now() - start,
+    });
   }
 }

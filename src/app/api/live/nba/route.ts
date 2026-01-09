@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET() {
+  const start = Date.now();
   try {
     const data = await fetchLiveScores();
     
@@ -24,5 +25,7 @@ export async function GET() {
       source: 'Error',
       error: (error as Error).message,
     }, { status: 500 });
+  } finally {
+    console.info(`[API timing] /api/live/nba ${Date.now() - start}ms`);
   }
 }
