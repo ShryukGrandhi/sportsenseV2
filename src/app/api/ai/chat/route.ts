@@ -180,7 +180,7 @@ interface PlayerComparisonVisual {
   }>;
 }
 
-type AIVisualResponse = 
+type AIVisualResponse =
   | { type: 'games'; data: VisualGameData[]; dateDisplay?: string }
   | { type: 'game'; data: VisualGameData }
   | { type: 'player'; data: VisualPlayerData }
@@ -296,7 +296,7 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 // INTENT DETECTION
 // ============================================
 
-type UserIntent = 
+type UserIntent =
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team' | 'date'; team?: string; date?: string; dateDisplay?: string }
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
   | { type: 'player'; name: string; season?: number; seasonDisplay?: string }
@@ -307,13 +307,13 @@ type UserIntent =
 
 function detectUserIntent(message: string): UserIntent {
   const lowerMsg = message.toLowerCase();
-  
+
   // Check for player comparison first
   // Also detect game context (e.g., "from the last warriors vs lakers game")
   const gameContextPattern = /(?:from|in|during|at)\s+(?:the\s+)?(?:last|previous|most recent|recent)\s+((?:\w+\s+)?(?:vs?\.?|versus)\s+(?:\w+\s+)?(?:game|matchup))/i;
   const gameContextMatch = lowerMsg.match(gameContextPattern);
   let gameContext: { team1?: string; team2?: string; date?: string; dateDisplay?: string } | undefined;
-  
+
   if (gameContextMatch) {
     // Extract teams from game context
     const gameText = gameContextMatch[1];
@@ -321,29 +321,29 @@ function detectUserIntent(message: string): UserIntent {
     if (teamMatch) {
       const team1Name = teamMatch[1].toLowerCase();
       const team2Name = teamMatch[2].toLowerCase();
-      const team1 = Object.values(NBA_TEAMS).find(t => 
-        t.name.toLowerCase().includes(team1Name) || 
+      const team1 = Object.values(NBA_TEAMS).find(t =>
+        t.name.toLowerCase().includes(team1Name) ||
         t.abbreviation.toLowerCase() === team1Name ||
         team1Name.includes(t.name.toLowerCase().split(' ')[0])
       );
-      const team2 = Object.values(NBA_TEAMS).find(t => 
-        t.name.toLowerCase().includes(team2Name) || 
+      const team2 = Object.values(NBA_TEAMS).find(t =>
+        t.name.toLowerCase().includes(team2Name) ||
         t.abbreviation.toLowerCase() === team2Name ||
         team2Name.includes(t.name.toLowerCase().split(' ')[0])
       );
-      
+
       if (team1 && team2) {
         gameContext = { team1: team1.abbreviation, team2: team2.abbreviation };
       }
     }
-    
+
     // Check for date in the message
     const dateMatch = extractDateFromMessage(message);
     if (dateMatch) {
       gameContext = { ...gameContext, date: dateMatch.dateString, dateDisplay: dateMatch.displayString };
     }
   }
-  
+
   const comparisonPatterns = [
     /compare\s+(.+?)\s+(?:vs?\.?|versus|and|to|with)\s+(.+)/i,
     /(.+?)\s+vs?\.?\s+(.+)/i,
@@ -351,13 +351,13 @@ function detectUserIntent(message: string): UserIntent {
     /(.+?)\s+or\s+(.+?)\s+who(?:'s| is)\s+better/i,
     /between\s+(.+?)\s+and\s+(.+)/i,
   ];
-  
+
   for (const pattern of comparisonPatterns) {
     const match = lowerMsg.match(pattern);
     if (match) {
       let player1 = match[1].trim().replace(/[?!.,]/g, '');
       let player2 = match[2].trim().replace(/[?!.,]/g, '');
-      
+
       // Remove game context and extra phrases from player names
       player1 = player1
         .replace(/(?:from|in|during|at)\s+(?:the\s+)?(?:last|previous|most recent|recent).*$/i, '')
@@ -369,36 +369,36 @@ function detectUserIntent(message: string): UserIntent {
         .replace(/^(?:tell me about|show me|what about|who is|stats for|statistics for)\s+/i, '')
         .replace(/\s+(?:stats|statistics|performance|numbers|averages).*$/i, '')
         .trim();
-      
+
       // Clean up "vs" or "versus" if they got captured
       player1 = player1.replace(/\s+vs\.?\s*$/i, '').trim();
       player2 = player2.replace(/^\s*vs\.?\s+/i, '').trim();
-      
+
       // Use player name map for common nicknames
       player1 = PLAYER_NAME_MAP[player1.toLowerCase()] || player1;
       player2 = PLAYER_NAME_MAP[player2.toLowerCase()] || player2;
-      
+
       console.log(`[Intent] Parsed comparison: "${player1}" vs "${player2}"`);
       return { type: 'comparison', player1, player2, gameContext };
     }
   }
-  
+
   // Check for standings
   if (lowerMsg.includes('standing') || lowerMsg.includes('rank') || lowerMsg.includes('playoff')) {
     if (lowerMsg.includes('east')) return { type: 'standings', conference: 'east' };
     if (lowerMsg.includes('west')) return { type: 'standings', conference: 'west' };
     return { type: 'standings', conference: 'both' };
   }
-  
+
   // Extract season from message (e.g., "2007-2008", "07-08", "2007", "2008 season")
   const seasonMatch = message.match(/(?:season\s+)?(\d{4})(?:-(\d{2,4}))?/i) || message.match(/(\d{2})-(\d{2})\s+season/i);
   let extractedSeason: number | undefined;
   let seasonDisplay: string | undefined;
-  
+
   if (seasonMatch) {
     const year1 = parseInt(seasonMatch[1]);
     const year2 = seasonMatch[2] ? parseInt(seasonMatch[2]) : null;
-    
+
     if (year2) {
       // Format: "2007-2008" or "07-08"
       const seasonStartYear = year1 < 100 ? 2000 + year1 : year1;
@@ -419,7 +419,7 @@ function detectUserIntent(message: string): UserIntent {
     /(\w+(?:\s+\w+)?(?:'s)?)\s+(?:stats|statistics|performance|numbers|averages)(?:\s+in\s+\d{4}(?:-\d{2,4})?\s+season)?/i,
     /how\s+(?:is|was|did)\s+(.+?)\s+(?:playing|doing|perform)/i,
   ];
-  
+
   for (const pattern of playerQueryPatterns) {
     const match = lowerMsg.match(pattern);
     if (match) {
@@ -439,14 +439,14 @@ function detectUserIntent(message: string): UserIntent {
       }
     }
   }
-  
+
   // Check for known player names directly
   for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
     if (lowerMsg.includes(nickname)) {
       return { type: 'player', name: fullName, season: extractedSeason, seasonDisplay };
     }
   }
-  
+
   // Check for game recap queries (e.g., "recap of lakers game last week", "lakers game recap")
   // This should come BEFORE general game detection to catch specific recap requests
   const recapPatterns = [
@@ -455,25 +455,25 @@ function detectUserIntent(message: string): UserIntent {
     /(?:recap|summary)\s+(?:of|the)\s+(\w+)\s+(?:game|match)/i,
     /give\s+me\s+(?:a\s+)?(?:recap|summary)\s+(?:of|the)\s+(\w+)\s+(?:game|match)/i,
   ];
-  
+
   for (const pattern of recapPatterns) {
     const match = lowerMsg.match(pattern);
     if (match) {
       const teamName = match[1].toLowerCase();
-      const team = Object.values(NBA_TEAMS).find(t => 
-        t.name.toLowerCase().includes(teamName) || 
+      const team = Object.values(NBA_TEAMS).find(t =>
+        t.name.toLowerCase().includes(teamName) ||
         t.abbreviation.toLowerCase() === teamName ||
         teamName.includes(t.name.toLowerCase().split(' ')[0])
       );
-      
+
       if (team) {
         // Extract date from message
         const dateMatch = extractDateFromMessage(message);
         if (dateMatch) {
           console.log(`[Intent] Detected recap query for ${team.abbreviation} on ${dateMatch.displayString}`);
-          return { 
-            type: 'games', 
-            filter: 'date', 
+          return {
+            type: 'games',
+            filter: 'date',
             team: team.abbreviation,
             date: dateMatch.dateString,
             dateDisplay: dateMatch.displayString,
@@ -483,23 +483,23 @@ function detectUserIntent(message: string): UserIntent {
         console.log(`[Intent] Detected recap query for ${team.abbreviation} (no date specified, searching last 7 days)`);
         const lastWeekDate = parseNaturalDate('last week');
         if (lastWeekDate) {
-          return { 
-            type: 'games', 
-            filter: 'date', 
+          return {
+            type: 'games',
+            filter: 'date',
             team: team.abbreviation,
             date: lastWeekDate.dateString,
             dateDisplay: lastWeekDate.displayString,
           };
         }
-        return { 
-          type: 'games', 
-          filter: 'team', 
+        return {
+          type: 'games',
+          filter: 'team',
           team: team.abbreviation,
         };
       }
     }
   }
-  
+
   // Check for games/scores (after player check)
   // First check for date references
   const dateMatch = extractDateFromMessage(message);
@@ -510,20 +510,20 @@ function detectUserIntent(message: string): UserIntent {
         return { type: 'games', filter: 'date', team: team.abbreviation, date: dateMatch.dateString, dateDisplay: dateMatch.displayString };
       }
     }
-    
+
     return { type: 'games', filter: 'date', date: dateMatch.dateString, dateDisplay: dateMatch.displayString };
   }
-  
-  if (lowerMsg.includes('score') || lowerMsg.includes('game') || lowerMsg.includes('playing') || 
-      lowerMsg.includes('tonight') || lowerMsg.includes('today') || lowerMsg.includes('tomorrow') ||
-      lowerMsg.includes('yesterday') || lowerMsg.includes('live') || lowerMsg.includes('schedule')) {
+
+  if (lowerMsg.includes('score') || lowerMsg.includes('game') || lowerMsg.includes('playing') ||
+    lowerMsg.includes('tonight') || lowerMsg.includes('today') || lowerMsg.includes('tomorrow') ||
+    lowerMsg.includes('yesterday') || lowerMsg.includes('live') || lowerMsg.includes('schedule')) {
     // Check for specific team
     for (const [key, team] of Object.entries(NBA_TEAMS)) {
       if (lowerMsg.includes(key)) {
         return { type: 'games', filter: 'team', team: team.abbreviation };
       }
     }
-    
+
     if (lowerMsg.includes('live')) return { type: 'games', filter: 'live' };
     if (lowerMsg.includes('tomorrow')) {
       const tomorrowDate = parseNaturalDate('tomorrow');
@@ -539,20 +539,20 @@ function detectUserIntent(message: string): UserIntent {
     }
     return { type: 'games', filter: 'today' };
   }
-  
+
   // Check for team info
   for (const [key, team] of Object.entries(NBA_TEAMS)) {
     if (lowerMsg.includes(key)) {
       return { type: 'team', name: team.name };
     }
   }
-  
+
   // Check for leaders/stats
   if (lowerMsg.includes('leader') || lowerMsg.includes('best') || lowerMsg.includes('top scorer') ||
-      lowerMsg.includes('mvp') || lowerMsg.includes('who leads')) {
+    lowerMsg.includes('mvp') || lowerMsg.includes('who leads')) {
     return { type: 'leaders' };
   }
-  
+
   return { type: 'general' };
 }
 
@@ -565,36 +565,36 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
     console.log(`[Player Search] Searching for: "${playerName}"`);
     const searchUrl = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(playerName)}&limit=10&type=player`;
     const response = await fetch(searchUrl);
-    
+
     if (!response.ok) {
       console.log(`[Player Search] Search request failed with status: ${response.status}`);
       return null;
     }
-    
+
     const data = await response.json();
     // ESPN API returns 'items' not 'results'
     const results = data.items || data.results || [];
     console.log(`[Player Search] Found ${results.length} total results`);
-    
+
     // Log all results for debugging
     results.forEach((r: any, i: number) => {
       console.log(`[Player Search] Result ${i}: ${r.displayName} (type: ${r.type}, league: ${r.league}, sport: ${r.sport})`);
     });
-    
+
     // First pass: exact NBA match (league can be string 'nba' or object)
     for (const result of results) {
-      const isNBA = result.league === 'nba' || 
-                   result.league?.toLowerCase?.() === 'nba' ||
-                   result.league?.abbreviation === 'NBA' ||
-                   result.defaultLeagueSlug === 'nba';
-      
+      const isNBA = result.league === 'nba' ||
+        result.league?.toLowerCase?.() === 'nba' ||
+        result.league?.abbreviation === 'NBA' ||
+        result.defaultLeagueSlug === 'nba';
+
       if (result.type === 'player' && isNBA) {
         // Get team info from teamRelationships
         const teamRel = result.teamRelationships?.[0]?.core || result.team;
         const teamName = teamRel?.displayName || result.teamRelationships?.[0]?.displayName || 'Unknown';
         const teamAbbr = teamRel?.abbreviation || 'nba';
         const teamLogo = teamRel?.logos?.[0]?.href || `https://a.espncdn.com/i/teamlogos/nba/500/${teamAbbr.toLowerCase()}.png`;
-        
+
         console.log(`[Player Search] Found NBA player: ${result.displayName} (ID: ${result.id}, Team: ${teamName})`);
         return {
           id: result.id,
@@ -605,7 +605,7 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
         };
       }
     }
-    
+
     // Second pass: any basketball player
     for (const result of results) {
       if (result.type === 'player' && result.sport === 'basketball') {
@@ -613,7 +613,7 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
         const teamName = teamRel?.displayName || result.teamRelationships?.[0]?.displayName || 'Unknown';
         const teamAbbr = teamRel?.abbreviation || 'nba';
         const teamLogo = teamRel?.logos?.[0]?.href || `https://a.espncdn.com/i/teamlogos/nba/500/${teamAbbr.toLowerCase()}.png`;
-        
+
         console.log(`[Player Search] Found basketball player (fallback): ${result.displayName} (ID: ${result.id})`);
         return {
           id: result.id,
@@ -624,7 +624,7 @@ async function searchPlayer(playerName: string): Promise<{ id: string; name: str
         };
       }
     }
-    
+
     console.log(`[Player Search] No NBA player found for "${playerName}"`);
     return null;
   } catch (error) {
@@ -645,19 +645,19 @@ async function fetchPlayerSeasonStats(playerId: string): Promise<ExtendedPlayerS
   try {
     // Use the same function that the game analytics page uses
     const seasonStats = await fetchPlayerStats(playerId);
-    
+
     if (!seasonStats) {
       console.log(`[Player Stats] No stats found for player ${playerId}`);
       return null;
     }
-    
+
     console.log(`[Player Stats] Raw stats for ${playerId}:`, {
       pointsPerGame: seasonStats.pointsPerGame,
       reboundsPerGame: seasonStats.reboundsPerGame,
       assistsPerGame: seasonStats.assistsPerGame,
       fgPct: seasonStats.fgPct,
     });
-    
+
     // Convert ESPNPlayerSeasonStats to ExtendedPlayerStats format
     // Note: ESPN returns percentages as whole numbers (e.g., 51.26 not 0.5126)
     const converted = {
@@ -672,12 +672,12 @@ async function fetchPlayerSeasonStats(playerId: string): Promise<ExtendedPlayerS
       mpg: seasonStats.minutesPerGame || 0,
       gamesPlayed: seasonStats.gamesPlayed || 0,
     };
-    
+
     // Validate and normalize stats
     const validated = validatePlayerStats(converted);
-    
+
     console.log(`[Player Stats] Converted stats for ${playerId}:`, validated);
-    
+
     return validated;
   } catch (error) {
     console.error('[Player Stats] Error:', error);
@@ -686,24 +686,24 @@ async function fetchPlayerSeasonStats(playerId: string): Promise<ExtendedPlayerS
 }
 
 async function fetchFullPlayerData(
-  playerName: string, 
+  playerName: string,
   season?: number
 ): Promise<VisualPlayerData | null> {
   console.log(`[Player Data] Fetching full data for: ${playerName}${season ? ` (season ${season})` : ' (current season)'}`);
-  
+
   const playerInfo = await searchPlayer(playerName);
   if (!playerInfo) {
     console.log(`[Player Data] Player not found: ${playerName}`);
     return null;
   }
-  
+
   console.log(`[Player Data] Found player: ${playerInfo.name} (${playerInfo.id})`);
-  
+
   // Fetch player stats - use current season by default, or specified season
   const fullPlayerStats = await fetchPlayerStats(playerInfo.id, season);
-  
+
   console.log(`[Player Data] Full player stats for ${playerInfo.name}:`, fullPlayerStats);
-  
+
   if (!fullPlayerStats) {
     console.log(`[Player Data] WARNING: No stats found for ${playerInfo.name} (${playerInfo.id}), trying career stats as fallback`);
     // Try career stats as fallback
@@ -723,7 +723,7 @@ async function fetchFullPlayerData(
         gamesPlayed: careerStats.gamesPlayed || 0,
       };
       const finalStats = validatePlayerStats(rawStats);
-      
+
       return {
         id: playerInfo.id,
         name: playerInfo.name, // Use the properly formatted name from search
@@ -738,7 +738,7 @@ async function fetchFullPlayerData(
   } else {
     console.log(`[Player Data] Stats found - PPG: ${fullPlayerStats.pointsPerGame}, RPG: ${fullPlayerStats.reboundsPerGame}, APG: ${fullPlayerStats.assistsPerGame}`);
   }
-  
+
   // Convert ESPNPlayerSeasonStats to our format
   // Note: ESPN returns percentages as whole numbers (e.g., 51.26 not 0.5126)
   const rawStats: ExtendedPlayerStats = fullPlayerStats ? {
@@ -753,12 +753,12 @@ async function fetchFullPlayerData(
     mpg: fullPlayerStats.minutesPerGame || 0,
     gamesPlayed: fullPlayerStats.gamesPlayed || 0,
   } : { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, fgPct: 0, fg3Pct: 0, ftPct: 0, mpg: 0, gamesPlayed: 0 };
-  
+
   // Validate and normalize stats
   const finalStats = validatePlayerStats(rawStats);
-  
+
   console.log(`[Player Data] Final converted stats for ${playerInfo.name}:`, finalStats);
-  
+
   const result: VisualPlayerData = {
     id: playerInfo.id,
     name: playerInfo.name, // Use the properly formatted name from search
@@ -769,21 +769,21 @@ async function fetchFullPlayerData(
     number: fullPlayerStats?.jersey || undefined,
     stats: finalStats,
   };
-  
+
   console.log(`[Player Data] Returning player data for ${playerInfo.name} with stats:`, result.stats);
-  
+
   return result;
 }
 
 // Search for player stats in today's games boxscores
 function findPlayerInBoxscores(playerName: string, liveContext: string): string | null {
   const normalizedName = playerName.toLowerCase();
-  
+
   // Search through the context for player stats
   const lines = liveContext.split('\n');
   for (const line of lines) {
     const lowerLine = line.toLowerCase();
-    
+
     // Check if this line contains the player's stats
     // Format: "    PlayerName: Xpts, Xreb, Xast, ..."
     const namePart = lowerLine.split(':')[0]?.trim();
@@ -795,7 +795,7 @@ function findPlayerInBoxscores(playerName: string, liveContext: string): string 
       return line.trim();
     }
   }
-  
+
   return null;
 }
 
@@ -803,16 +803,16 @@ function findPlayerInBoxscores(playerName: string, liveContext: string): string 
 function levenshteinDistance(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
-  
+
   const matrix: number[][] = [];
-  
+
   for (let i = 0; i <= b.length; i++) {
     matrix[i] = [i];
   }
   for (let j = 0; j <= a.length; j++) {
     matrix[0][j] = j;
   }
-  
+
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
       if (b.charAt(i - 1) === a.charAt(j - 1)) {
@@ -826,14 +826,14 @@ function levenshteinDistance(a: string, b: string): number {
       }
     }
   }
-  
+
   return matrix[b.length][a.length];
 }
 
 function convertGameToVisual(game: LiveGameData): VisualGameData {
-  const getTeamLogo = (abbr: string) => 
+  const getTeamLogo = (abbr: string) =>
     `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
-  
+
   return {
     gameId: game.gameId,
     homeTeam: {
@@ -868,18 +868,18 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
       case 'games': {
         let games = liveData.games as LiveGameData[];
         let dateDisplay: string | undefined;
-        
+
         // Check if this is a future date query
         const isFutureDateQuery = intent.filter === 'date' && intent.dateDisplay &&
-          (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') || 
-           (parseNaturalDate(intent.date || '')?.isFuture ?? false));
-        
+          (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') ||
+            (parseNaturalDate(intent.date || '')?.isFuture ?? false));
+
         if (intent.filter === 'live') {
           games = games.filter(g => g.status === 'live' || g.status === 'halftime');
           dateDisplay = 'Today';
         } else if (intent.filter === 'team' && intent.team) {
-          games = games.filter(g => 
-            g.homeTeam.abbreviation === intent.team || 
+          games = games.filter(g =>
+            g.homeTeam.abbreviation === intent.team ||
             g.awayTeam.abbreviation === intent.team
           );
           dateDisplay = 'Today';
@@ -890,10 +890,10 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           // Default to today
           dateDisplay = 'Today';
         }
-        
+
         // For future dates, allow empty games array (Gemini will populate it)
         if (games.length === 0 && !isFutureDateQuery) return null;
-        
+
         const gamesResponse: AIVisualResponse = {
           type: 'games',
           data: games.map(convertGameToVisual),
@@ -901,11 +901,11 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
         };
         return gamesResponse;
       }
-      
+
       case 'standings': {
         const standingsData = await fetchStandings();
         const result: VisualStandingsData[] = [];
-        
+
         if (intent.conference !== 'west' && standingsData.east.length > 0) {
           result.push({
             conference: 'East',
@@ -924,7 +924,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             })),
           });
         }
-        
+
         if (intent.conference !== 'east' && standingsData.west.length > 0) {
           result.push({
             conference: 'West',
@@ -943,12 +943,12 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             })),
           });
         }
-        
+
         if (result.length === 0) return null;
-        
+
         return { type: 'standings', data: result };
       }
-      
+
       case 'player': {
         const player = await fetchFullPlayerData(intent.name, intent.season);
         if (!player) {
@@ -967,16 +967,16 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             },
           };
         }
-        
+
         // Check if player has game stats from today
         const boxscores = await fetchAllBoxscores(liveData.games as LiveGameData[]);
         for (const game of boxscores) {
           const allPlayers = [...game.homePlayers, ...game.awayPlayers];
-          const playerStats = allPlayers.find(p => 
+          const playerStats = allPlayers.find(p =>
             p.name.toLowerCase().includes(player.name.toLowerCase().split(' ')[1] || player.name.toLowerCase()) ||
             player.name.toLowerCase().includes(p.name.toLowerCase().split(' ')[1] || p.name.toLowerCase())
           );
-          
+
           if (playerStats) {
             const rawGameStats = {
               points: playerStats.points,
@@ -994,45 +994,45 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             break;
           }
         }
-        
+
         return { type: 'player', data: player };
       }
-      
+
       case 'comparison': {
         // Fetch player data
         const [player1, player2] = await Promise.all([
           fetchFullPlayerData(intent.player1),
           fetchFullPlayerData(intent.player2),
         ]);
-        
+
         // If game context is provided, fetch game-specific stats
         if (intent.gameContext?.team1 && intent.gameContext?.team2) {
           console.log(`[Comparison] Fetching game stats for ${intent.gameContext.team1} vs ${intent.gameContext.team2}`);
-          
+
           const gameMatch = await findGameByTeams(
             intent.gameContext.team1,
             intent.gameContext.team2,
             intent.gameContext.date
           );
-          
+
           if (gameMatch) {
             console.log(`[Comparison] Found game: ${gameMatch.gameId}`);
             const gameDetail = await fetchGameDetail(gameMatch.gameId);
-            
+
             if (gameDetail) {
               // Find player stats in the game
               const allGamePlayers = [...gameDetail.homeStats, ...gameDetail.awayStats];
-              
+
               // Match player1
               if (player1) {
                 const p1GameStats = allGamePlayers.find(p => {
                   const pName = (p.player?.displayName || p.player?.name || '').toLowerCase();
                   const searchName = player1.name.toLowerCase();
-                  return pName === searchName || 
-                         pName.includes(searchName.split(' ')[1] || searchName) ||
-                         searchName.includes(pName.split(' ')[1] || pName);
+                  return pName === searchName ||
+                    pName.includes(searchName.split(' ')[1] || searchName) ||
+                    searchName.includes(pName.split(' ')[1] || pName);
                 });
-                
+
                 if (p1GameStats) {
                   const rawGameStats = {
                     points: p1GameStats.points,
@@ -1050,17 +1050,17 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
                   console.log(`[Comparison] Found game stats for ${player1.name}`);
                 }
               }
-              
+
               // Match player2
               if (player2) {
                 const p2GameStats = allGamePlayers.find(p => {
                   const pName = (p.player?.displayName || p.player?.name || '').toLowerCase();
                   const searchName = player2.name.toLowerCase();
-                  return pName === searchName || 
-                         pName.includes(searchName.split(' ')[1] || searchName) ||
-                         searchName.includes(pName.split(' ')[1] || pName);
+                  return pName === searchName ||
+                    pName.includes(searchName.split(' ')[1] || searchName) ||
+                    searchName.includes(pName.split(' ')[1] || pName);
                 });
-                
+
                 if (p2GameStats) {
                   const rawGameStats = {
                     points: p2GameStats.points,
@@ -1081,7 +1081,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
             }
           }
         }
-        
+
         // Always return a visual for comparison queries, even if data fetch fails
         // Use fetched data or create minimal placeholder objects
         // IMPORTANT: Use the properly formatted name from searchPlayer, not the raw intent
@@ -1095,7 +1095,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           // Capitalize properly
           return cleaned.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
         };
-        
+
         const p1 = player1 || {
           id: '',
           name: formatPlayerName(intent.player1),
@@ -1105,7 +1105,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           position: '',
           stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, fgPct: 0, fg3Pct: 0, ftPct: 0, mpg: 0 },
         };
-        
+
         const p2 = player2 || {
           id: '',
           name: formatPlayerName(intent.player2),
@@ -1115,10 +1115,10 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           position: '',
           stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, fgPct: 0, fg3Pct: 0, ftPct: 0, mpg: 0 },
         };
-        
+
         // Format percentages correctly - stats come as percentages already (e.g., 51.26 not 0.5126)
         const formatPct = (val: number) => val > 1 ? val.toFixed(1) + '%' : (val * 100).toFixed(1) + '%';
-        
+
         const categories: PlayerComparisonVisual['categories'] = [
           { name: 'PPG', player1Value: p1.stats.ppg?.toFixed(1) || '0.0', player2Value: p2.stats.ppg?.toFixed(1) || '0.0', winner: (p1.stats.ppg || 0) > (p2.stats.ppg || 0) ? 'player1' : (p2.stats.ppg || 0) > (p1.stats.ppg || 0) ? 'player2' : 'tie' },
           { name: 'RPG', player1Value: p1.stats.rpg?.toFixed(1) || '0.0', player2Value: p2.stats.rpg?.toFixed(1) || '0.0', winner: (p1.stats.rpg || 0) > (p2.stats.rpg || 0) ? 'player1' : (p2.stats.rpg || 0) > (p1.stats.rpg || 0) ? 'player2' : 'tie' },
@@ -1129,7 +1129,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           { name: '3P%', player1Value: formatPct(p1.stats.fg3Pct || 0), player2Value: formatPct(p2.stats.fg3Pct || 0), winner: (p1.stats.fg3Pct || 0) > (p2.stats.fg3Pct || 0) ? 'player1' : (p2.stats.fg3Pct || 0) > (p1.stats.fg3Pct || 0) ? 'player2' : 'tie' },
           { name: 'FT%', player1Value: formatPct(p1.stats.ftPct || 0), player2Value: formatPct(p2.stats.ftPct || 0), winner: (p1.stats.ftPct || 0) > (p2.stats.ftPct || 0) ? 'player1' : (p2.stats.ftPct || 0) > (p1.stats.ftPct || 0) ? 'player2' : 'tie' },
         ];
-        
+
         return {
           type: 'comparison',
           data: {
@@ -1140,7 +1140,7 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
           },
         };
       }
-      
+
       default:
         return null;
     }
@@ -1170,7 +1170,7 @@ try {
 }
 
 const GEMINI_MODELS = [
-  'gemini-2.5-pro',
+  'gemini-2.0-flash',
 ];
 
 let currentModelIndex = 0;
@@ -1287,24 +1287,24 @@ interface ChatRequest {
 
 export async function POST(request: Request) {
   console.log('[AI Chat] Received request');
-  
+
   let parsedMessage = '';
-  
+
   try {
     let body: ChatRequest;
     try {
       body = await request.json();
       parsedMessage = body.message || '';
     } catch (parseError) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Invalid JSON in request body',
         response: "I couldn't understand your request. Please try again!"
       }, { status: 400 });
     }
-    
-    const { 
-      message, 
-      personality = 'default', 
+
+    const {
+      message,
+      personality = 'default',
       length = 'medium',
       type = 'general',
       requestVisuals = true,
@@ -1332,7 +1332,7 @@ export async function POST(request: Request) {
         console.error('[AI Chat] Init error details:', initError instanceof Error ? initError.stack : initError);
       }
     }
-    
+
     if (!chatAI) {
       console.error('[AI Chat] No AI client available. API key:', GEMINI_API_KEY ? 'Present but failed to initialize' : 'Missing');
     }
@@ -1342,12 +1342,12 @@ export async function POST(request: Request) {
     let liveData;
     let liveContext;
     let dateContext = '';
-    
+
     try {
       // Handle date-specific game queries
       if (intent.type === 'games' && intent.filter === 'date' && intent.date) {
         console.log(`[AI Chat] Fetching games for date: ${intent.dateDisplay || intent.date}`);
-        
+
         // If "last week" or similar, search a range of dates (7 days back)
         let gamesToSearch: string[] = [intent.date];
         if (intent.dateDisplay?.toLowerCase().includes('last week') || intent.dateDisplay?.toLowerCase().includes('week')) {
@@ -1360,7 +1360,7 @@ export async function POST(request: Request) {
             gamesToSearch.push(dateStr);
           }
         }
-        
+
         // Fetch games from all dates in the range
         const allGames: LiveGameData[] = [];
         for (const dateStr of gamesToSearch) {
@@ -1372,16 +1372,16 @@ export async function POST(request: Request) {
             continue;
           }
         }
-        
+
         // Filter by team if specified
         let filteredGames = allGames;
         if (intent.team) {
-          filteredGames = allGames.filter(g => 
-            g.homeTeam.abbreviation === intent.team || 
+          filteredGames = allGames.filter(g =>
+            g.homeTeam.abbreviation === intent.team ||
             g.awayTeam.abbreviation === intent.team
           );
         }
-        
+
         liveData = {
           games: filteredGames,
           lastUpdated: new Date().toISOString(),
@@ -1391,9 +1391,9 @@ export async function POST(request: Request) {
         // Check if this is a future date
         const parsedDate = parseNaturalDate(intent.date || '');
         const isFutureDate = parsedDate?.isFuture || intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next');
-        
+
         dateContext = `\n\nDATE CONTEXT: User is asking about games ${intent.team ? `involving ${intent.team} ` : ''}on ${intent.dateDisplay || intent.date}. This is ${intent.dateDisplay === 'Today' ? 'today' : intent.dateDisplay === 'Tomorrow' ? 'tomorrow' : intent.dateDisplay === 'Yesterday' ? 'yesterday' : intent.dateDisplay?.toLowerCase().includes('last week') ? 'from last week' : `on ${intent.dateDisplay}`}.\n`;
-        
+
         // For future dates, explicitly tell AI to use its knowledge of NBA schedules
         if (isFutureDate && filteredGames.length === 0) {
           dateContext += `\n**CRITICAL FOR FUTURE DATE QUERIES:** This is a FUTURE date. The API may not have schedule data yet, but YOU HAVE KNOWLEDGE of NBA schedules. Use your extensive knowledge base to answer about scheduled games for this date. NBA games typically occur daily during the regular season (mid-October to mid-April). Even if the API shows 0 games, you can provide schedule information based on:\n`;
@@ -1403,9 +1403,9 @@ export async function POST(request: Request) {
           dateContext += `- If you know specific games are scheduled for this date, list them with teams, times, and venues\n`;
           dateContext += `- DO NOT say "no games scheduled" unless you're certain - NBA plays almost daily during the regular season\n`;
         }
-        
+
         console.log(`[AI Chat] Found ${filteredGames.length} games ${intent.team ? `for ${intent.team} ` : ''}${intent.dateDisplay ? `on ${intent.dateDisplay}` : ''} (Future date: ${isFutureDate})`);
-        
+
         // Fetch boxscores for completed games
         const completedGames = filteredGames.filter(g => g.status === 'final');
         if (completedGames.length > 0) {
@@ -1420,11 +1420,11 @@ export async function POST(request: Request) {
         // Default: fetch today's live data
         console.log('[AI Chat] Fetching live NBA data and boxscores...');
         liveData = await fetchAllLiveData();
-        
+
         // Fetch detailed boxscores for live/final games to get individual player stats
         const boxscores = await fetchAllBoxscores(liveData.games);
         console.log(`[AI Chat] Fetched ${boxscores.length} game boxscores with individual player stats`);
-        
+
         liveContext = buildAIContext(liveData, boxscores);
       }
     } catch (dataError) {
@@ -1447,10 +1447,10 @@ export async function POST(request: Request) {
       switch (visualResponse.type) {
         case 'games':
           // Check if this is a future date query with 0 games from API
-          const isFutureQuery = intent.type === 'games' && intent.filter === 'date' && 
-            (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') || 
-             (parseNaturalDate(intent.date || '')?.isFuture ?? false));
-          
+          const isFutureQuery = intent.type === 'games' && intent.filter === 'date' &&
+            (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') ||
+              (parseNaturalDate(intent.date || '')?.isFuture ?? false));
+
           if (visualResponse.data.length === 0 && isFutureQuery) {
             visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe API returned 0 games for this future date (${intent.dateDisplay || intent.date}), but the user will see a games grid.\n\n`;
             visualContext += `**CRITICAL: This is a FUTURE DATE query. The user asked about games on ${intent.dateDisplay || intent.date}.\n`;
@@ -1472,7 +1472,7 @@ export async function POST(request: Request) {
               visualContext += `- ${g.awayTeam.abbreviation} ${g.awayTeam.score} @ ${g.homeTeam.abbreviation} ${g.homeTeam.score} (${g.status})\n`;
             });
           }
-          
+
           // If user asked for a recap, provide detailed game recap
           const isRecapQuery = message.toLowerCase().includes('recap') || message.toLowerCase().includes('summary');
           if (isRecapQuery && visualResponse.data.length > 0) {
@@ -1492,7 +1492,7 @@ export async function POST(request: Request) {
           break;
         case 'player':
           const p = visualResponse.data;
-          const requestedSeason = (intent as any).seasonDisplay || (intent as any).season 
+          const requestedSeason = (intent as any).seasonDisplay || (intent as any).season
             ? `the ${(intent as any).seasonDisplay || `${(intent as any).season}-${String((intent as any).season! + 1).slice(-2)}`} season`
             : 'the current 2025-26 season';
           visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a player card for ${p.name} (${p.team}) with the following ESPN stats:\n`;
@@ -1676,22 +1676,22 @@ If the user asked about a specific date, acknowledge that date and reference gam
     let result;
     let usedModel = '';
     let lastError: Error | null = null;
-    
+
     for (let i = currentModelIndex; i < GEMINI_MODELS.length; i++) {
       const modelName = GEMINI_MODELS[i];
-      
+
       try {
         if (!chatAI) throw new Error('AI not initialized');
-        
+
         console.log(`[AI Chat] Calling generateContent with model: ${modelName}`);
         console.log(`[AI Chat] Prompt length: ${fullPrompt.length} characters`);
-        
+
         // Build request object - check if config is supported
         const requestParams: any = {
           model: modelName,
           contents: fullPrompt,
         };
-        
+
         // Add generation config if supported
         if (lengthSettings.maxTokens || personality) {
           requestParams.generationConfig = {
@@ -1699,33 +1699,33 @@ If the user asked about a specific date, acknowledge that date and reference gam
             temperature: personality === 'hype' ? 0.9 : personality === 'analyst' ? 0.3 : 0.7,
           };
         }
-        
+
         console.log('[AI Chat] Request params:', JSON.stringify({
           model: requestParams.model,
           contentsLength: requestParams.contents?.length,
           hasGenerationConfig: !!requestParams.generationConfig,
         }));
-        
+
         const response = await chatAI.models.generateContent(requestParams);
-        
+
         console.log('[AI Chat] Response received:', {
           hasText: !!response.text,
           responseKeys: Object.keys(response || {}),
           responseType: typeof response,
         });
-        
+
         // Handle different possible response structures
         let responseText = '';
         if (response && typeof response === 'object') {
           const responseAny = response as any;
           responseText = responseAny.text || responseAny.response?.text || responseAny.content || '';
-          
+
           if (!responseText) {
             console.error('[AI Chat] No text found in response:', JSON.stringify(response, null, 2));
             throw new Error(`Invalid response from ${modelName}: no text content found`);
           }
         }
-        
+
         // Create a response-like object with text property
         result = { text: responseText };
         usedModel = modelName;
@@ -1740,62 +1740,62 @@ If the user asked about a specific date, acknowledge that date and reference gam
         lastError = genError;
       }
     }
-    
+
     if (!result) {
       const errorDetails = lastError ? `${lastError.message || 'Unknown error'}. ${lastError.stack || ''}` : 'Unknown error';
       console.error('[AI Chat] All models failed. Last error details:', errorDetails);
       throw new Error(`All AI models failed. Last error: ${errorDetails}`);
     }
-    
+
     const responseText = result.text || '';
-    
+
     if (!responseText) {
       throw new Error('Received empty response from AI model');
     }
-    
+
     let response = responseText;
 
     // If games visual response for future date with 0 games, check for scheduled games from Gemini
     if (visualResponse?.type === 'games' && visualResponse.data.length === 0) {
-      const isFutureQuery = intent.type === 'games' && intent.filter === 'date' && 
-        (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') || 
-         (parseNaturalDate(intent.date || '')?.isFuture ?? false));
-      
+      const isFutureQuery = intent.type === 'games' && intent.filter === 'date' &&
+        (intent.dateDisplay === 'Tomorrow' || intent.dateDisplay?.toLowerCase().includes('next') ||
+          (parseNaturalDate(intent.date || '')?.isFuture ?? false));
+
       if (isFutureQuery) {
         // Try to extract scheduled games from Gemini's response
         const jsonBlockMatch = response.match(/```json\s*(\{[\s\S]*?\})\s*```/);
         const inlineJsonMatch = response.match(/\{"scheduledGames":\s*\[[\s\S]*?\]\}/);
-        
+
         const jsonStr = jsonBlockMatch?.[1] || inlineJsonMatch?.[0];
-        
+
         if (jsonStr) {
           try {
             const parsed = JSON.parse(jsonStr);
-            
+
             if (parsed.scheduledGames && Array.isArray(parsed.scheduledGames) && parsed.scheduledGames.length > 0) {
               console.log(`[AI Chat] Gemini provided ${parsed.scheduledGames.length} scheduled games for future date`);
-              
+
               // Convert Gemini's scheduled games to visual format
               const scheduledGames: VisualGameData[] = parsed.scheduledGames.map((game: any) => {
                 // Get team info from NBA_TEAMS
-                const awayTeamData = Object.values(NBA_TEAMS).find(t => 
+                const awayTeamData = Object.values(NBA_TEAMS).find(t =>
                   t.abbreviation.toUpperCase() === game.awayTeam?.toUpperCase()
                 );
-                const homeTeamData = Object.values(NBA_TEAMS).find(t => 
+                const homeTeamData = Object.values(NBA_TEAMS).find(t =>
                   t.abbreviation.toUpperCase() === game.homeTeam?.toUpperCase()
                 );
-                
+
                 if (!awayTeamData || !homeTeamData) {
                   console.warn(`[AI Chat] Could not find team data for ${game.awayTeam} or ${game.homeTeam}`);
                   return null;
                 }
-                
+
                 // Parse records
                 const awayRecord = game.awayRecord || '0-0';
                 const homeRecord = game.homeRecord || '0-0';
                 const [awayWins, awayLosses] = awayRecord.split('-').map((n: string) => parseInt(n) || 0);
                 const [homeWins, homeLosses] = homeRecord.split('-').map((n: string) => parseInt(n) || 0);
-                
+
                 return {
                   gameId: `${game.awayTeam}-${game.homeTeam}-${intent.date || ''}`,
                   awayTeam: {
@@ -1817,16 +1817,16 @@ If the user asked about a specific date, acknowledge that date and reference gam
                   broadcast: game.broadcast || undefined,
                 };
               }).filter((game: VisualGameData | null): game is VisualGameData => game !== null);
-              
+
               if (scheduledGames.length > 0) {
                 // Update visual response with Gemini's scheduled games
                 visualResponse.data = scheduledGames;
                 visualResponse.dateDisplay = intent.dateDisplay;
-                
-                console.log(`[AI Chat] Updated visual with ${scheduledGames.length} games from Gemini's knowledge:`, 
+
+                console.log(`[AI Chat] Updated visual with ${scheduledGames.length} games from Gemini's knowledge:`,
                   scheduledGames.map(g => `${g.awayTeam.abbreviation} @ ${g.homeTeam.abbreviation}`)
                 );
-                
+
                 // Remove the JSON block from the response text so it doesn't show to user
                 response = response.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '').replace(/\{"scheduledGames":\s*\[[\s\S]*?\]\}/g, '').trim();
               }
@@ -1847,13 +1847,13 @@ If the user asked about a specific date, acknowledge that date and reference gam
       // Match JSON code blocks or inline JSON
       const jsonBlockMatch = response.match(/```json\s*(\{[\s\S]*?\})\s*```/);
       const inlineJsonMatch = response.match(/\{"correctedStats":\s*\{[\s\S]*?\}(?:,\s*"team":\s*"[^"]*")?\}/);
-      
+
       const jsonStr = jsonBlockMatch?.[1] || inlineJsonMatch?.[0];
-      
+
       if (jsonStr) {
         try {
           const parsed = JSON.parse(jsonStr);
-          
+
           if (parsed.correctedStats && typeof parsed.correctedStats === 'object') {
             const corrected = parsed.correctedStats;
             const originalStats = { ...visualResponse.data.stats }; // Save original for logging
@@ -1861,7 +1861,7 @@ If the user asked about a specific date, acknowledge that date and reference gam
             console.log(`[AI Chat] Gemini provided corrected stats:`, corrected);
             console.log(`[AI Chat] Original ESPN stats:`, originalStats);
             console.log(`[AI Chat] Original team:`, originalTeam);
-            
+
             // Update visual response with corrected stats - ALWAYS use Gemini's values if provided
             const updatedStats: ExtendedPlayerStats = {
               ppg: corrected.ppg !== undefined ? corrected.ppg : originalStats.ppg,
@@ -1875,33 +1875,33 @@ If the user asked about a specific date, acknowledge that date and reference gam
               ftPct: corrected.ftPct !== undefined ? corrected.ftPct : originalStats.ftPct,
               gamesPlayed: corrected.gamesPlayed !== undefined ? corrected.gamesPlayed : originalStats.gamesPlayed,
             };
-            
+
             // Validate corrected stats
             const validatedStats = validatePlayerStats(updatedStats);
             visualResponse.data.stats = validatedStats;
-            
+
             // Update team if provided by Gemini
             if (parsed.team && typeof parsed.team === 'string') {
               // Find the team logo for the corrected team
               const teamNameLower = parsed.team.toLowerCase();
-              let team = Object.values(NBA_TEAMS).find(t => 
+              let team = Object.values(NBA_TEAMS).find(t =>
                 t.name.toLowerCase() === teamNameLower ||
                 t.abbreviation.toLowerCase() === teamNameLower
               );
-              
+
               // Try partial matching if exact match failed
               if (!team) {
                 for (const key of Object.keys(NBA_TEAMS)) {
                   const teamData = NBA_TEAMS[key];
                   if (teamNameLower.includes(key) || key.includes(teamNameLower.split(' ')[0]) ||
-                      teamData.name.toLowerCase().includes(teamNameLower.split(' ')[0]) ||
-                      teamNameLower.includes(teamData.name.toLowerCase().split(' ')[0])) {
+                    teamData.name.toLowerCase().includes(teamNameLower.split(' ')[0]) ||
+                    teamNameLower.includes(teamData.name.toLowerCase().split(' ')[0])) {
                     team = teamData;
                     break;
                   }
                 }
               }
-              
+
               if (team) {
                 visualResponse.data.team = team.name;
                 visualResponse.data.teamLogo = `https://a.espncdn.com/i/teamlogos/nba/500/${team.abbreviation.toLowerCase()}.png`;
@@ -1911,7 +1911,7 @@ If the user asked about a specific date, acknowledge that date and reference gam
                 console.log(`[AI Chat] Updated team from "${originalTeam}" to "${parsed.team}" (exact match not found, using as-is)`);
               }
             }
-            
+
             console.log(`[AI Chat] Updated player card with Gemini-corrected stats:`, {
               before: originalStats,
               after: validatedStats,
@@ -1926,7 +1926,7 @@ If the user asked about a specific date, acknowledge that date and reference gam
                 gamesPlayed: originalStats.gamesPlayed !== validatedStats.gamesPlayed ? `${originalStats.gamesPlayed} → ${validatedStats.gamesPlayed}` : 'unchanged',
               },
             });
-            
+
             // Remove the JSON block from the response text so it doesn't show to user
             response = response.replace(/```json\s*\{[\s\S]*?\}\s*```/g, '').replace(/\{"correctedStats":\s*\{[\s\S]*?\}(?:,\s*"team":\s*"[^"]*")?\}/g, '').trim();
           }
@@ -1964,7 +1964,7 @@ If the user asked about a specific date, acknowledge that date and reference gam
     console.error('[AI Chat Error] Stack trace:', errorStack);
     console.error('[AI Chat Error] Error object:', error);
     logger.error('AI chat error', { error: errorMsg, stack: errorStack });
-    
+
     // Provide more helpful error message
     let userMessage = "I hit a snag! 🏀 Check ESPN.com for the latest: https://www.espn.com/nba/";
     if (errorMsg.includes('API key') || errorMsg.includes('GEMINI')) {
@@ -1972,7 +1972,7 @@ If the user asked about a specific date, acknowledge that date and reference gam
     } else if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
       userMessage = "I'm having trouble fetching live data. Please try again in a moment.";
     }
-    
+
     return NextResponse.json({
       response: userMessage,
       error: errorMsg,
