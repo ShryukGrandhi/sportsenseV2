@@ -1656,7 +1656,18 @@ Respond directly to what the user asked. For game recaps, tell the story. Lead w
       throw new Error(`All AI models failed. Last error: ${lastError?.message || 'Unknown error'}`);
     }
 
-    const response = result.response.text();
+    console.log('[AI Chat] Got result from model:', usedModel);
+    console.log('[AI Chat] Result object keys:', Object.keys(result));
+    console.log('[AI Chat] Has response:', !!result.response);
+
+    let response = '';
+    try {
+      response = result.response.text();
+      console.log('[AI Chat] Response text length:', response?.length || 0);
+    } catch (textError: any) {
+      console.error('[AI Chat] Error extracting text:', textError?.message);
+      response = "I processed your request but couldn't generate a text response.";
+    }
 
     // If comparison, add verdict to visual
     if (visualResponse?.type === 'comparison') {
