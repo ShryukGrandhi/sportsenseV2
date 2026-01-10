@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Sparkles } from 'lucide-react';
+import { AIInsightModal } from '@/components/ai/AIInsightModal';
 
 interface TeamData {
   name: string;
@@ -222,9 +224,11 @@ export function LiveGameCard({ game, onScoreUpdate }: LiveGameCardProps) {
   const [homeRipple, setHomeRipple] = useState(false);
   const [awayRipple, setAwayRipple] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [showInsightModal, setShowInsightModal] = useState(false);
   
   const isLive = game.status === 'live' || game.status === 'halftime';
   const isFinal = game.status === 'final';
+  const showAIButton = isLive || isFinal;
 
   // Detect score changes
   useEffect(() => {
@@ -275,15 +279,22 @@ export function LiveGameCard({ game, onScoreUpdate }: LiveGameCardProps) {
   const homeWinning = homeScore > awayScore;
   const awayWinning = awayScore > homeScore;
 
+  const handleAIButtonClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowInsightModal(true);
+  };
+
   return (
-    <Link href={`/nba/games/${game.gameId}`}>
-      <motion.div 
-        className={`glass rounded-xl p-4 card-hover block transition-all hover:scale-[1.02] hover:shadow-xl relative overflow-hidden ${
-          isLive ? 'ring-1 ring-red-500/30' : ''
-        }`}
-        whileHover={{ y: -2 }}
-        layout
-      >
+    <>
+      <Link href={`/nba/games/${game.gameId}`}>
+        <motion.div 
+          className={`glass rounded-xl p-4 card-hover block transition-all hover:scale-[1.02] hover:shadow-xl relative overflow-hidden ${
+            isLive ? 'ring-1 ring-red-500/30' : ''
+          }`}
+          whileHover={{ y: -2 }}
+          layout
+        >
         {/* Score ripple effects */}
         <ScoreRipple show={homeRipple} color="rgba(34, 197, 94, 0.2)" />
         <ScoreRipple show={awayRipple} color="rgba(34, 197, 94, 0.2)" />
@@ -295,6 +306,17 @@ export function LiveGameCard({ game, onScoreUpdate }: LiveGameCardProps) {
         {/* Glow effect for live games */}
         {isLive && (
           <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 via-transparent to-orange-500/5 animate-pulse pointer-events-none" />
+        )}
+
+        {/* AI Insight Button - Only shown for LIVE, HALFTIME, or FINAL games */}
+        {showAIButton && (
+          <button
+            onClick={handleAIButtonClick}
+            className="absolute bottom-3 right-3 z-10 p-2 rounded-lg bg-gradient-to-br from-orange-500/30 to-purple-500/30 border border-orange-500/20 hover:from-orange-500/50 hover:to-purple-500/50 hover:border-orange-500/40 transition-all duration-300 hover:scale-110 shadow-lg shadow-orange-500/10"
+            title={isFinal ? "View Game Recap" : "View Live Analysis"}
+          >
+            <Sparkles className="w-4 h-4 text-orange-300" />
+          </button>
         )}
 
         {/* Status Badge */}
@@ -399,6 +421,19 @@ export function LiveGameCard({ game, onScoreUpdate }: LiveGameCardProps) {
         </div>
       </motion.div>
     </Link>
+
+    {/* AI Insight Modal */}
+    <AIInsightModal
+      isOpen={showInsightModal}
+      onClose={() => setShowInsightModal(false)}
+      gameId={game.gameId}
+      gameStatus={game.status === 'final' ? 'FINAL' : game.status === 'halftime' ? 'HALFTIME' : 'LIVE'}
+      homeTeam={game.homeTeam.abbreviation}
+      awayTeam={game.awayTeam.abbreviation}
+      homeScore={homeScore}
+      awayScore={awayScore}
+    />
+    </>
   );
 }
 
