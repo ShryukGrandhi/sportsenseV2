@@ -127,7 +127,77 @@ function NotificationToast({ notification, onClose, onViewInsight }: Notificatio
   );
 }
 
-// Fetch AI insight for a game
+// ============================================
+// AI INSIGHT QUEUE - Prevents burst requests
+// ============================================
+const aiRequestQueue: Array<{
+  gameId: string;
+  type: 'halftime' | 'final';
+  options?: { homeTeamAbbr?: string; awayTeamAbbr?: string; gameDate?: string };
+  resolve: (value: string | null) => void;
+}> = [];
+let isProcessingQueue = false;
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL_MS = 3000; // 3 seconds between requests to avoid rate limits
+let totalRequestsThisSession = 0;
+
+async function processAIQueue() {
+  if (isProcessingQueue || aiRequestQueue.length === 0) return;
+  isProcessingQueue = true;
+
+  while (aiRequestQueue.length > 0) {
+    const request = aiRequestQueue.shift();
+    if (!request) break;
+
+    // Enforce minimum interval between requests
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTime;
+    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL_MS) {
+      await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL_MS - timeSinceLastRequest));
+    }
+
+    try {
+      totalRequestsThisSession++;
+      console.log(`[AI Queue] Processing request #${totalRequestsThisSession}: ${request.gameId} (${request.type})`);
+      
+      const response = await fetch('/api/ai/summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gameId: request.gameId,
+          type: request.type,
+          homeTeamAbbr: request.options?.homeTeamAbbr,
+          awayTeamAbbr: request.options?.awayTeamAbbr,
+          gameDate: request.options?.gameDate,
+        }),
+      });
+
+      lastRequestTime = Date.now();
+
+      if (!response.ok) {
+        // Check for rate limit
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 10000;
+          console.warn(`[AI Queue] Rate limited, waiting ${waitTime}ms`);
+          await new Promise(r => setTimeout(r, waitTime));
+        }
+        request.resolve(null);
+        continue;
+      }
+
+      const data = await response.json();
+      request.resolve(data.success ? data.data.summary : null);
+    } catch (error) {
+      console.error('[AI Queue] Request failed:', error);
+      request.resolve(null);
+    }
+  }
+
+  isProcessingQueue = false;
+}
+
+// Fetch AI insight for a game (queued to prevent bursts)
 async function fetchAIInsight(
   gameId: string,
   type: 'halftime' | 'final',
@@ -137,28 +207,19 @@ async function fetchAIInsight(
     gameDate?: string;
   }
 ): Promise<string | null> {
-  try {
-    const response = await fetch('/api/ai/summary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        gameId,
-        type,
-        homeTeamAbbr: options?.homeTeamAbbr,
-        awayTeamAbbr: options?.awayTeamAbbr,
-        gameDate: options?.gameDate,
-      }),
-    });
+  return new Promise((resolve) => {
+    // Check if this game is already in the queue
+    const existingRequest = aiRequestQueue.find(r => r.gameId === gameId && r.type === type);
+    if (existingRequest) {
+      console.log(`[AI Queue] Skipping duplicate request for ${gameId} (${type})`);
+      resolve(null);
+      return;
+    }
 
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (!data.success) return null;
-
-    return data.data.summary;
-  } catch {
-    return null;
-  }
+    console.log(`[AI Queue] Queueing request for ${gameId} (${type}), queue size: ${aiRequestQueue.length + 1}`);
+    aiRequestQueue.push({ gameId, type, options, resolve });
+    processAIQueue();
+  });
 }
 
 // Truncate text for preview

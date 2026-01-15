@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from "@google/genai";
 import { logger } from '@/lib/logger';
-import { fetchAllLiveData, buildAIContext, fetchStandings, fetchAllBoxscores, fetchScoresByDate, findGameByTeams, LiveGameData } from '@/services/nba/live-data';
+import { fetchAllLiveData, buildAIContext, fetchStandings, fetchAllBoxscores, fetchScoresByDate, findGameByTeams, fetchGameBoxscore, LiveGameData } from '@/services/nba/live-data';
 import { fetchPlayerStats, fetchGameDetail, fetchPlayerCareerStats, fetchPlayerStatsForSeason } from '@/services/nba/espn-api';
 import { extractDateFromMessage, parseNaturalDate } from '@/lib/date-parser';
 
@@ -298,6 +298,7 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 
 type UserIntent =
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team' | 'date'; team?: string; date?: string; dateDisplay?: string }
+  | { type: 'specificGame'; gameId: string } // New: for queries about specific game IDs
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
   | { type: 'player'; name: string; season?: number; seasonDisplay?: string }
   | { type: 'comparison'; player1: string; player2: string; gameContext?: { team1?: string; team2?: string; date?: string; dateDisplay?: string } }
@@ -307,6 +308,14 @@ type UserIntent =
 
 function detectUserIntent(message: string): UserIntent {
   const lowerMsg = message.toLowerCase();
+
+  // Check for specific game ID first (format: 9-10 digit number, usually starts with 401)
+  // Examples: "game 401810413", "game id 401810413", "401810413"
+  const gameIdMatch = message.match(/\b(401\d{6,7})\b/);
+  if (gameIdMatch) {
+    console.log(`[Intent] Detected specific game ID: ${gameIdMatch[1]}`);
+    return { type: 'specificGame', gameId: gameIdMatch[1] };
+  }
 
   // Check for player comparison first
   // Also detect game context (e.g., "from the last warriors vs lakers game")
@@ -1154,13 +1163,27 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
 // GEMINI AI CONFIGURATION
 // ============================================
 
+import { createHash } from 'crypto';
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// Log API key info at startup (for debugging quota issues)
+function logApiKeyInfo() {
+  if (!GEMINI_API_KEY) {
+    console.warn('[AI Chat] ⚠️ GEMINI_API_KEY not set');
+    return;
+  }
+  const keyHash = createHash('sha256').update(GEMINI_API_KEY).digest('hex').substring(0, 12);
+  const keyPrefix = GEMINI_API_KEY.substring(0, 8);
+  console.log(`[AI Chat] 🔑 API Key: ${keyPrefix}... (hash: ${keyHash}, len: ${GEMINI_API_KEY.length})`);
+}
 
 // Log API key status (without exposing the actual key)
 console.log('[AI Module] GEMINI_API_KEY status:', GEMINI_API_KEY ? `Present (length: ${GEMINI_API_KEY.length})` : 'Missing');
 
 let ai: GoogleGenAI | null = null;
 try {
+  logApiKeyInfo();
   // Try with explicit API key first, fallback to empty object (reads from env)
   ai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : new GoogleGenAI({});
   console.log('[AI Module] GoogleGenAI initialized successfully');
@@ -1197,11 +1220,13 @@ RESPONSE STYLE:
 - Compare intelligently: "Compared to LeBron at the same age, Luka has more assists per game but fewer championships"
 
 DATA ACCURACY:
-- ALWAYS use the exact numbers provided in the data
-- NEVER invent statistics or make up numbers
-- If data is missing, say "I don't have that specific statistic available" rather than guessing
+- ALWAYS use the exact numbers provided in the data for live/today's games
+- NEVER invent statistics or make up numbers for individual player game stats
+- For live game stats: If data shows "7pts", report exactly "7 points" - NEVER guess a different number
+- If a player's stats aren't in the provided data, acknowledge this rather than inventing stats
 - Cross-reference multiple data points for consistency
-- Cite your sources when using historical or comparative data`,
+- Cite your sources when using historical or comparative data
+- CRITICAL: Inventing player stats (e.g., saying "28 points" when data shows "7pts") is a serious error`,
 
   hype: `You are PLAYMAKER AI - MAXIMUM ENERGY, MAXIMUM ACCURACY! 🔥
 
@@ -1260,6 +1285,7 @@ interface ChatRequest {
   length?: 'short' | 'medium' | 'long';
   type?: 'general' | 'game' | 'team';
   requestVisuals?: boolean;
+  gameId?: string; // Specific game ID for fetching that game's boxscore
   gameContext?: {
     homeTeam: string;
     awayTeam: string;
@@ -1308,6 +1334,7 @@ export async function POST(request: Request) {
       length = 'medium',
       type = 'general',
       requestVisuals = true,
+      gameId: requestGameId, // Game ID passed from the game page
       gameContext,
       teamContext
     } = body;
@@ -1316,9 +1343,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // Detect user intent
-    const intent = detectUserIntent(message);
+    // Detect user intent - but override with specific game if gameId is provided
+    let intent = detectUserIntent(message);
     console.log('[AI Chat] Detected intent:', intent.type);
+    
+    // If a specific gameId is provided from the game page, use it to ensure we fetch that game's data
+    // This overrides the intent to ensure we always have the correct game's boxscore
+    if (requestGameId && type === 'game') {
+      console.log(`[AI Chat] Game page provided gameId: ${requestGameId}, overriding to fetch specific game`);
+      intent = { type: 'specificGame', gameId: requestGameId };
+    }
 
     // Reinitialize ai if needed
     let chatAI = ai;
@@ -1344,8 +1378,54 @@ export async function POST(request: Request) {
     let dateContext = '';
 
     try {
+      // Handle specific game ID queries (for historical games)
+      if (intent.type === 'specificGame') {
+        const gameId = intent.gameId;
+        console.log(`[AI Chat] Fetching specific game: ${gameId}`);
+        
+        // Fetch the specific game's boxscore directly
+        const boxscore = await fetchGameBoxscore(gameId);
+        
+        if (boxscore) {
+          // Create a game data structure from the boxscore
+          const gameData: LiveGameData = {
+            gameId: boxscore.gameId,
+            homeTeam: {
+              name: boxscore.homeTeam,
+              abbreviation: boxscore.homeTeam,
+              score: boxscore.homeScore,
+            },
+            awayTeam: {
+              name: boxscore.awayTeam,
+              abbreviation: boxscore.awayTeam,
+              score: boxscore.awayScore,
+            },
+            status: boxscore.status.toLowerCase().includes('final') ? 'final' : 
+                    boxscore.status.toLowerCase().includes('progress') ? 'live' : 'scheduled',
+            period: 0,
+            clock: '',
+          };
+          
+          liveData = {
+            games: [gameData],
+            lastUpdated: new Date().toISOString(),
+            source: 'ESPN API',
+            sourceUrl: `https://www.espn.com/nba/game/_/gameId/${gameId}`,
+          };
+          
+          liveContext = buildAIContext(liveData, [boxscore]);
+          dateContext = `\n\nGAME CONTEXT: User is asking about a specific game (ID: ${gameId}). The boxscore data with individual player statistics is provided below.\n`;
+          
+          console.log(`[AI Chat] Loaded boxscore for game ${gameId}: ${boxscore.awayTeam} ${boxscore.awayScore} @ ${boxscore.homeTeam} ${boxscore.homeScore}`);
+          console.log(`[AI Chat] Players loaded: ${boxscore.awayPlayers.length + boxscore.homePlayers.length}`);
+        } else {
+          console.log(`[AI Chat] Could not fetch boxscore for game ${gameId}`);
+          liveData = { games: [], lastUpdated: new Date().toISOString(), source: 'ESPN API', sourceUrl: 'https://www.espn.com/nba/' };
+          liveContext = `Could not fetch data for game ${gameId}. The game may not exist or data is unavailable.`;
+        }
+      }
       // Handle date-specific game queries
-      if (intent.type === 'games' && intent.filter === 'date' && intent.date) {
+      else if (intent.type === 'games' && intent.filter === 'date' && intent.date) {
         console.log(`[AI Chat] Fetching games for date: ${intent.dateDisplay || intent.date}`);
 
         // If "last week" or similar, search a range of dates (7 days back)
@@ -1645,6 +1725,23 @@ RESPONSE STRUCTURE:
 
 ${visualContext ? 'IMPORTANT: The user will see a rich visual (cards, tables, charts) alongside your response. DO NOT repeat data shown in the visual. Instead, provide ANALYSIS, INSIGHTS, CONTEXT, and COMPARISONS that add value beyond what they can see.' : ''}
 
+**🚨 CRITICAL - LIVE GAME STATS ACCURACY RULE 🚨**
+For ANY statistics from TODAY'S GAMES or LIVE/RECENT GAMES:
+- You MUST use ONLY the EXACT numbers provided in the "INDIVIDUAL PLAYER STATS" sections below
+- DO NOT guess, estimate, infer, or make up player game statistics
+- If a player's stats are shown as "7pts", you MUST say "7 points" - NEVER invent a different number
+- This rule applies to: points, rebounds, assists, steals, blocks, shooting percentages, minutes, +/-
+- If you cannot find a player's stats in the data below, say "I don't see [player]'s stats in the current data" - DO NOT invent stats
+- VIOLATION OF THIS RULE (making up stats like "28 points" when data shows "7pts") is UNACCEPTABLE
+
+The "educated guesses" permission ONLY applies to:
+- Historical trivia without specific numbers
+- Future game predictions
+- General basketball knowledge
+- Season-long trends when exact data isn't provided
+
+It does NOT apply to individual player statistics from games in the data below.
+
 ===== DATA FOR ${intent.type === 'games' && intent.dateDisplay ? intent.dateDisplay.toUpperCase() : 'TODAY'} =====
 ${liveContext}
 ===== END DATA =====
@@ -1656,10 +1753,12 @@ ${dateContext}
 USER QUESTION: ${message}
 
 Provide a comprehensive, accurate, and insightful response using:
-1. EXACT statistics from the data provided above when available
-2. YOUR KNOWLEDGE BASE to fill in gaps, make inferences, and provide context
+1. **FOR TODAY'S/LIVE GAME STATS**: Use ONLY the EXACT statistics from the data provided above - NO guessing or inventing numbers
+2. YOUR KNOWLEDGE BASE to fill in gaps for historical context, trends, and general analysis
 3. INTELLIGENT REASONING to answer questions even when specific data isn't present
-4. EDUCATED GUESSES based on historical patterns, player tendencies, and statistical norms
+4. EDUCATED GUESSES ONLY for historical trivia, predictions, or season trends - NEVER for individual player game stats
+
+🚨 REMINDER: If the data shows "Brice Sensabaugh: 7pts", you MUST report 7 points. Inventing stats like "28 points" is a critical error.
 
 Be specific with numbers when available, add analytical depth, and make it engaging. If showing visual data, provide analysis and context that complements rather than repeats what they see. 
 

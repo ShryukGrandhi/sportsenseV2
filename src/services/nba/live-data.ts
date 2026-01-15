@@ -861,25 +861,56 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
     const homeComp = competition.competitors?.find((c: any) => c.homeAway === 'home');
     const awayComp = competition.competitors?.find((c: any) => c.homeAway === 'away');
     
-    const parsePlayerStats = (players: any[], teamAbbr: string): PlayerBoxscoreStats[] => {
+    // Parse player stats using dynamic label-based index lookup
+    // ESPN uses different stat orderings in different games/endpoints:
+    // Format 1: [MIN, FG, 3PT, FT, OREB, DREB, REB, AST, STL, BLK, TO, PF, +/-, PTS]
+    // Format 2: [MIN, PTS, FG, 3PT, FT, REB, AST, TO, STL, BLK, OREB, DREB, PF, +/-]
+    const parsePlayerStats = (players: any[], teamAbbr: string, labels: string[]): PlayerBoxscoreStats[] => {
       if (!players || !Array.isArray(players)) return [];
+      
+      // Build index map from labels (case-insensitive)
+      const labelMap: Record<string, number> = {};
+      labels.forEach((label, idx) => {
+        labelMap[label.toUpperCase()] = idx;
+      });
+      
+      // Helper to get index by label name
+      const getIndex = (labelNames: string[]): number => {
+        for (const name of labelNames) {
+          if (labelMap[name.toUpperCase()] !== undefined) {
+            return labelMap[name.toUpperCase()];
+          }
+        }
+        return -1;
+      };
+      
+      // Find indices for each stat using labels
+      const minIdx = getIndex(['MIN', 'MINS', 'Minutes']);
+      const ptsIdx = getIndex(['PTS', 'Points']);
+      const fgIdx = getIndex(['FG', 'Field Goals']);
+      const fg3Idx = getIndex(['3PT', '3P', 'Three Pointers']);
+      const ftIdx = getIndex(['FT', 'Free Throws']);
+      const rebIdx = getIndex(['REB', 'Rebounds', 'TREB']);
+      const astIdx = getIndex(['AST', 'Assists']);
+      const toIdx = getIndex(['TO', 'TOV', 'Turnovers']);
+      const stlIdx = getIndex(['STL', 'Steals']);
+      const blkIdx = getIndex(['BLK', 'Blocks']);
+      const pmIdx = getIndex(['+/-', 'PM', 'PLUSMINUS', 'Plus/Minus']);
       
       return players.filter(p => !p.didNotPlay).map(p => {
         const stats = p.stats || [];
+        
         const parseShooting = (str: string): [number, number] => {
           if (!str || str === '--' || str === '-') return [0, 0];
           const parts = String(str).split('-');
+          if (parts.length !== 2) return [0, 0];
           return [parseInt(parts[0]) || 0, parseInt(parts[1]) || 0];
         };
         
-        const getStatByIndex = (idx: number): string => {
-          if (!Array.isArray(stats) || idx >= stats.length) return '0';
-          return String(stats[idx] ?? '0');
+        const getStatByIndex = (idx: number, defaultVal = '0'): string => {
+          if (idx < 0 || !Array.isArray(stats) || idx >= stats.length) return defaultVal;
+          return String(stats[idx] ?? defaultVal);
         };
-        
-        const [fgm, fga] = parseShooting(getStatByIndex(1));
-        const [fg3m, fg3a] = parseShooting(getStatByIndex(2));
-        const [ftm, fta] = parseShooting(getStatByIndex(3));
         
         // Extract player name - try multiple paths to ensure accuracy
         const playerName = p.athlete?.displayName || 
@@ -889,18 +920,42 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
                           p.name || 
                           'Unknown';
         
+        // Get stats using label-based indices
+        const minutes = getStatByIndex(minIdx);
+        const [fgm, fga] = parseShooting(getStatByIndex(fgIdx));
+        const [fg3m, fg3a] = parseShooting(getStatByIndex(fg3Idx));
+        const [ftm, fta] = parseShooting(getStatByIndex(ftIdx));
+        
+        // Get counting stats - use label-based indices
+        let points = parseInt(getStatByIndex(ptsIdx)) || 0;
+        let rebounds = parseInt(getStatByIndex(rebIdx)) || 0;
+        let assists = parseInt(getStatByIndex(astIdx)) || 0;
+        let steals = parseInt(getStatByIndex(stlIdx)) || 0;
+        let blocks = parseInt(getStatByIndex(blkIdx)) || 0;
+        let turnovers = parseInt(getStatByIndex(toIdx)) || 0;
+        let plusMinus = getStatByIndex(pmIdx);
+        
+        // CRITICAL VALIDATION: Basketball counting stats can NEVER be negative
+        // If we got a negative value, something went wrong
+        points = Math.max(0, points);
+        rebounds = Math.max(0, rebounds);
+        assists = Math.max(0, assists);
+        steals = Math.max(0, steals);
+        blocks = Math.max(0, blocks);
+        turnovers = Math.max(0, turnovers);
+        
         return {
           name: playerName,
           team: teamAbbr,
-          minutes: getStatByIndex(0),
-          points: parseInt(getStatByIndex(13)) || 0,
-          rebounds: parseInt(getStatByIndex(6)) || 0,
-          assists: parseInt(getStatByIndex(7)) || 0,
-          steals: parseInt(getStatByIndex(8)) || 0,
-          blocks: parseInt(getStatByIndex(9)) || 0,
-          turnovers: parseInt(getStatByIndex(10)) || 0,
+          minutes,
+          points,
+          rebounds,
+          assists,
+          steals,
+          blocks,
+          turnovers,
           fgm, fga, fg3m, fg3a, ftm, fta,
-          plusMinus: getStatByIndex(12),
+          plusMinus,
         };
       }).filter(p => p.minutes !== '0' && p.minutes !== '--');
     };
@@ -913,12 +968,15 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
       for (const teamData of boxscore.players) {
         const teamId = teamData.team?.id;
         const teamAbbr = teamData.team?.abbreviation || '???';
-        const playerStats = teamData.statistics?.[0]?.athletes || [];
+        // Get labels and athletes from statistics
+        const statGroup = teamData.statistics?.[0] || {};
+        const labels = statGroup.labels || [];
+        const playerStats = statGroup.athletes || [];
         
         if (teamId === homeComp?.id) {
-          homePlayers = parsePlayerStats(playerStats, teamAbbr);
+          homePlayers = parsePlayerStats(playerStats, teamAbbr, labels);
         } else {
-          awayPlayers = parsePlayerStats(playerStats, teamAbbr);
+          awayPlayers = parsePlayerStats(playerStats, teamAbbr, labels);
         }
       }
     }
@@ -1028,8 +1086,20 @@ export function buildAIContext(data: LiveDataResponse, boxscores?: GameBoxscore[
       // Add detailed boxscore player stats if available
       const gameBoxscore = boxscores?.find(b => b.gameId === game.gameId);
       if (gameBoxscore) {
+        // Helper to ensure stats are never negative (except +/- which can be)
+        const safeStats = (p: PlayerBoxscoreStats) => ({
+          ...p,
+          points: Math.max(0, p.points),
+          rebounds: Math.max(0, p.rebounds),
+          assists: Math.max(0, p.assists),
+          steals: Math.max(0, p.steals),
+          blocks: Math.max(0, p.blocks),
+          turnovers: Math.max(0, p.turnovers),
+        });
+        
         lines.push(`\n  === ${game.awayTeam.abbreviation} INDIVIDUAL PLAYER STATS ===`);
-        gameBoxscore.awayPlayers.slice(0, 8).forEach(p => {
+        gameBoxscore.awayPlayers.slice(0, 8).forEach(rawP => {
+          const p = safeStats(rawP);
           const fgPct = p.fga > 0 ? ((p.fgm / p.fga) * 100).toFixed(1) : '0.0';
           const fg3Pct = p.fg3a > 0 ? ((p.fg3m / p.fg3a) * 100).toFixed(1) : '0.0';
           const plusMinusNum = parseInt(p.plusMinus) || 0;
@@ -1038,7 +1108,8 @@ export function buildAIContext(data: LiveDataResponse, boxscores?: GameBoxscore[
         });
         
         lines.push(`\n  === ${game.homeTeam.abbreviation} INDIVIDUAL PLAYER STATS ===`);
-        gameBoxscore.homePlayers.slice(0, 8).forEach(p => {
+        gameBoxscore.homePlayers.slice(0, 8).forEach(rawP => {
+          const p = safeStats(rawP);
           const fgPct = p.fga > 0 ? ((p.fgm / p.fga) * 100).toFixed(1) : '0.0';
           const fg3Pct = p.fg3a > 0 ? ((p.fg3m / p.fg3a) * 100).toFixed(1) : '0.0';
           const plusMinusNum = parseInt(p.plusMinus) || 0;

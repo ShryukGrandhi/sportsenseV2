@@ -115,6 +115,7 @@ export function GameChatSidebar({
           personality,
           length,
           type: 'game',
+          gameId, // Include the specific game ID for accurate boxscore fetching
           gameContext: {
             homeTeam,
             awayTeam,

@@ -55,27 +55,34 @@ export function GameChat({ gameId, gameContext }: GameChatProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          gameId,
-          question: userMessage.content,
-          stream: false,
+          message: userMessage.content,
+          gameId, // Include game ID for accurate boxscore fetching
+          type: 'game',
+          personality: 'default',
+          length: 'medium',
+          gameContext: {
+            homeTeam: gameContext.homeTeam,
+            awayTeam: gameContext.awayTeam,
+            status: gameContext.isLive ? 'live' : 'final',
+          },
         }),
       });
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data.response) {
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: data.data.text,
+          content: data.response,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
-      } else {
+      } else if (data.error) {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: data.error?.message || 'Sorry, I encountered an error. Please try again.',
+          content: typeof data.error === 'string' ? data.error : 'Sorry, I encountered an error. Please try again.',
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, errorMessage]);

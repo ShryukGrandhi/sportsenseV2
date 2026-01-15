@@ -1,6 +1,7 @@
 // Gemini AI Service - Game summaries and previews
 
 import { GoogleGenAI } from '@google/genai';
+import { createHash } from 'crypto';
 import { logger } from '@/lib/logger';
 import type { AIGameContext } from '@/types/nba';
 
@@ -14,9 +15,21 @@ export interface ChatResponse {
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL_NAME = 'gemini-2.5-flash';
 
+// Log API key info at startup (for debugging quota issues)
+function logApiKeyInfo() {
+  if (!GEMINI_API_KEY) {
+    console.warn('[AI Service] ⚠️ GEMINI_API_KEY not set');
+    return;
+  }
+  const keyHash = createHash('sha256').update(GEMINI_API_KEY).digest('hex').substring(0, 12);
+  const keyPrefix = GEMINI_API_KEY.substring(0, 8);
+  console.log(`[AI Service] 🔑 API Key: ${keyPrefix}... (hash: ${keyHash}, len: ${GEMINI_API_KEY.length})`);
+}
+
 let ai: GoogleGenAI | null = null;
 if (GEMINI_API_KEY) {
   try {
+    logApiKeyInfo();
     ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     console.log('[AI Service] GoogleGenAI initialized successfully');
   } catch (error) {

@@ -66,6 +66,7 @@ export function GameChatWidget({ games, sport }: GameChatWidgetProps) {
           personality,
           length: 'medium',
           type: 'game',
+          gameId: selectedGame?.id, // Include game ID for accurate boxscore fetching
           gameContext: selectedGame ? {
             homeTeam: selectedGame.homeTeam.fullName,
             awayTeam: selectedGame.awayTeam.fullName,

@@ -413,14 +413,53 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
       }
     }
 
-    // Parse player stats - handles ESPN's nested boxscore structure
-    const parsePlayerStats = (players: any[], teamId: string): ESPNPlayerStats[] => {
+    // Parse player stats using dynamic label-based index lookup
+    // ESPN uses different stat orderings in different games/endpoints:
+    // Format 1: [MIN, FG, 3PT, FT, OREB, DREB, REB, AST, STL, BLK, TO, PF, +/-, PTS]
+    // Format 2: [MIN, PTS, FG, 3PT, FT, REB, AST, TO, STL, BLK, OREB, DREB, PF, +/-]
+    const parsePlayerStats = (players: any[], teamId: string, teamLabels: string[] = []): ESPNPlayerStats[] => {
       if (!players || !Array.isArray(players)) {
         logger.info('No players array to parse', { teamId });
         return [];
       }
       
-      logger.info('Parsing player stats', { teamId, playerCount: players.length });
+      logger.info('Parsing player stats', { teamId, playerCount: players.length, labelsCount: teamLabels.length });
+      
+      // Build index map from labels (case-insensitive)
+      const labelMap: Record<string, number> = {};
+      teamLabels.forEach((label, idx) => {
+        if (label) {
+          labelMap[label.toUpperCase()] = idx;
+        }
+      });
+      
+      // Helper to get index by label name
+      const getIndex = (labelNames: string[]): number => {
+        for (const name of labelNames) {
+          if (labelMap[name.toUpperCase()] !== undefined) {
+            return labelMap[name.toUpperCase()];
+          }
+        }
+        return -1;
+      };
+      
+      // Find indices for each stat using labels
+      const minIdx = getIndex(['MIN', 'MINS', 'Minutes']);
+      const ptsIdx = getIndex(['PTS', 'Points']);
+      const fgIdx = getIndex(['FG', 'Field Goals']);
+      const fg3Idx = getIndex(['3PT', '3P', 'Three Pointers']);
+      const ftIdx = getIndex(['FT', 'Free Throws']);
+      const rebIdx = getIndex(['REB', 'Rebounds', 'TREB']);
+      const astIdx = getIndex(['AST', 'Assists']);
+      const toIdx = getIndex(['TO', 'TOV', 'Turnovers']);
+      const stlIdx = getIndex(['STL', 'Steals']);
+      const blkIdx = getIndex(['BLK', 'Blocks']);
+      const pmIdx = getIndex(['+/-', 'PM', 'PLUSMINUS', 'Plus/Minus']);
+      
+      logger.info('Label index mapping', {
+        minIdx, ptsIdx, fgIdx, fg3Idx, ftIdx, rebIdx, astIdx, toIdx, stlIdx, blkIdx, pmIdx,
+        labels: teamLabels.join(', '),
+      });
       
       // Log first player's complete structure for debugging
       if (players.length > 0) {
@@ -437,7 +476,6 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
       
       const parsed = players.map((p: any) => {
         // ESPN boxscore structure: stats are directly on the player object as an array
-        // The labels come from the parent statistics object
         const stats = p.stats || p.statistics?.[0]?.stats || [];
         
         // Log raw stats for first player
@@ -449,50 +487,6 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
           });
         }
         
-        // ESPN boxscore stats can be in different formats:
-        // 1. Array format: [MIN, FG, 3PT, FT, OREB, DREB, REB, AST, STL, BLK, TO, PF, +/-, PTS]
-        // 2. Object format with labels from parent statistics
-        // 3. Named stat objects
-        
-        // First, try to find stat labels from the parent statistics object
-        const statLabels = p.statistics?.[0]?.labels || [];
-        
-        // Helper to get stat by name or index
-        const getStat = (name: string, index: number, defaultVal = '0'): string => {
-          // Try by name first (if we have labels)
-          if (statLabels.length > 0 && index < statLabels.length) {
-            const label = statLabels[index];
-            // Look for stat object with matching name/abbreviation
-            if (Array.isArray(stats)) {
-              // If stats is array, use index
-              if (index < stats.length) {
-                return String(stats[index] ?? defaultVal);
-              }
-            } else if (typeof stats === 'object') {
-              // If stats is object, try various key names
-              const value = stats[label] || stats[label.toLowerCase()] || stats[name.toLowerCase()];
-              if (value !== undefined && value !== null) {
-                return String(value);
-              }
-            }
-          }
-          
-          // Fallback to index-based access
-          if (Array.isArray(stats) && index < stats.length) {
-            return String(stats[index] ?? defaultVal);
-          }
-          
-          return defaultVal;
-        };
-        
-        // ESPN standard order for boxscore stats (if array format):
-        // [MIN, FG, 3PT, FT, OREB, DREB, REB, AST, STL, BLK, TO, PF, +/-, PTS]
-        // Index: 0=MIN, 1=FG, 2=3PT, 3=FT, 4=OREB, 5=DREB, 6=REB, 7=AST, 8=STL, 9=BLK, 10=TO, 11=PF, 12=+/-, 13=PTS
-        
-        const getStatByIndex = (idx: number, defaultVal = '0'): string => {
-          return getStat('', idx, defaultVal);
-        };
-        
         const parseShooting = (str: string): [number, number] => {
           if (!str || str === '--' || str === '-' || str === '0') return [0, 0];
           const parts = String(str).split('-');
@@ -500,122 +494,37 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
           return [parseInt(parts[0]) || 0, parseInt(parts[1]) || 0];
         };
         
-        // Try to find stats using labels first (more reliable than hardcoded indices)
-        // ESPN may return stats in different orders depending on the game/endpoint
-        const findStatByLabel = (labels: string[], targetLabels: string[]): number => {
-          for (const target of targetLabels) {
-            const idx = labels.findIndex(l => l?.toLowerCase() === target.toLowerCase());
-            if (idx !== -1 && Array.isArray(stats) && idx < stats.length) {
-              const val = parseInt(String(stats[idx])) || 0;
-              return val;
-            }
-          }
-          return -1; // Not found
+        const getStatByIndex = (idx: number, defaultVal = '0'): string => {
+          if (idx < 0 || !Array.isArray(stats) || idx >= stats.length) return defaultVal;
+          return String(stats[idx] ?? defaultVal);
         };
         
-        const findStatStrByLabel = (labels: string[], targetLabels: string[]): string => {
-          for (const target of targetLabels) {
-            const idx = labels.findIndex(l => l?.toLowerCase() === target.toLowerCase());
-            if (idx !== -1 && Array.isArray(stats) && idx < stats.length) {
-              return String(stats[idx] ?? '0');
-            }
-          }
-          return '0';
+        // Use label-based indices if available, otherwise fall back to hardcoded indices
+        const useIdx = (labelIdx: number, fallbackIdx: number): number => {
+          return labelIdx >= 0 ? labelIdx : fallbackIdx;
         };
         
-        // Get labels from the parent statistics object if available
-        const labels = statLabels.length > 0 ? statLabels : [];
-        
-        // Try label-based lookup first, fall back to index-based
-        let minutes = findStatStrByLabel(labels, ['MIN', 'MINS', 'Minutes']);
-        let points = findStatByLabel(labels, ['PTS', 'Points']);
-        let rebounds = findStatByLabel(labels, ['REB', 'Rebounds', 'TREB']);
-        let assists = findStatByLabel(labels, ['AST', 'Assists']);
-        let steals = findStatByLabel(labels, ['STL', 'Steals']);
-        let blocks = findStatByLabel(labels, ['BLK', 'Blocks']);
-        let turnovers = findStatByLabel(labels, ['TO', 'TOV', 'Turnovers']);
-        let plusMinusVal = findStatStrByLabel(labels, ['+/-', 'PLUSMINUS', 'PM']);
-        let fgStr = findStatStrByLabel(labels, ['FG', 'Field Goals']);
-        let fg3Str = findStatStrByLabel(labels, ['3PT', '3P', 'Three Pointers']);
-        let ftStr = findStatStrByLabel(labels, ['FT', 'Free Throws']);
-        
-        // Fallback to index-based if label lookup failed
-        if (minutes === '0' && Array.isArray(stats) && stats.length > 0) {
-          minutes = getStatByIndex(0);
-        }
-        
-        // For index-based fallback, we need to be smart about detecting +/- vs PTS
-        // Since +/- can be negative but PTS cannot, we can use this to detect mix-ups
-        let rawIndex13 = 0;
-        let rawIndex12 = 0;
-        if (Array.isArray(stats) && stats.length > 13) {
-          rawIndex13 = parseInt(String(stats[13])) || 0;
-          rawIndex12 = parseInt(String(stats[12])) || 0;
-        }
-        
-        if (points === -1) {
-          // Standard order: index 12 = +/-, index 13 = PTS
-          // But if index 13 is negative, it's likely +/- and we need to find PTS elsewhere
-          if (rawIndex13 < 0) {
-            // Index 13 has a negative value, so it's probably +/-
-            // Try index 12 for points, or recalculate from FG + FT
-            points = rawIndex12 >= 0 ? rawIndex12 : 0;
-            // And use index 13 as +/-
-            if (plusMinusVal === '0') {
-              plusMinusVal = String(rawIndex13);
-            }
-          } else {
-            points = rawIndex13;
-          }
-        }
-        if (rebounds === -1) {
-          rebounds = parseInt(getStatByIndex(6)) || 0;
-        }
-        if (assists === -1) {
-          assists = parseInt(getStatByIndex(7)) || 0;
-        }
-        if (steals === -1) {
-          steals = parseInt(getStatByIndex(8)) || 0;
-        }
-        if (blocks === -1) {
-          blocks = parseInt(getStatByIndex(9)) || 0;
-        }
-        if (turnovers === -1) {
-          turnovers = parseInt(getStatByIndex(10)) || 0;
-        }
-        if (plusMinusVal === '0' && Array.isArray(stats) && stats.length > 12) {
-          // Only use index 12 if we haven't already assigned +/- from detecting a swap
-          plusMinusVal = getStatByIndex(12);
-        }
-        if (fgStr === '0') {
-          fgStr = getStatByIndex(1);
-        }
-        if (fg3Str === '0') {
-          fg3Str = getStatByIndex(2);
-        }
-        if (ftStr === '0') {
-          ftStr = getStatByIndex(3);
-        }
+        // Get stats using label-based or fallback indices
+        const minutes = getStatByIndex(useIdx(minIdx, 0));
+        const fgStr = getStatByIndex(useIdx(fgIdx, 1));
+        const fg3Str = getStatByIndex(useIdx(fg3Idx, 2));
+        const ftStr = getStatByIndex(useIdx(ftIdx, 3));
         
         const [fgm, fga] = parseShooting(fgStr);
         const [fg3m, fg3a] = parseShooting(fg3Str);
         const [ftm, fta] = parseShooting(ftStr);
-        let plusMinus = plusMinusVal;
         
-        // If points is still negative after all our checks, that value is definitely +/-
-        // Swap it: use that value as +/- and calculate points from FG + FT
-        if (points < 0) {
-          // This negative "points" is actually +/-
-          plusMinus = String(points);
-          // Calculate actual points from field goals and free throws
-          // Points = (FGM * 2) + (FG3M * 1) + FTM  ... wait that's wrong
-          // Actually: Points = (FGM - FG3M) * 2 + FG3M * 3 + FTM
-          // Or simpler: Try to find it by looking for a reasonable value in the array
-          points = (fgm - fg3m) * 2 + fg3m * 3 + ftm;
-        }
+        // Get counting stats using label-based indices
+        let points = parseInt(getStatByIndex(useIdx(ptsIdx, 13))) || 0;
+        let rebounds = parseInt(getStatByIndex(useIdx(rebIdx, 6))) || 0;
+        let assists = parseInt(getStatByIndex(useIdx(astIdx, 7))) || 0;
+        let steals = parseInt(getStatByIndex(useIdx(stlIdx, 8))) || 0;
+        let blocks = parseInt(getStatByIndex(useIdx(blkIdx, 9))) || 0;
+        let turnovers = parseInt(getStatByIndex(useIdx(toIdx, 10))) || 0;
+        let plusMinus = getStatByIndex(useIdx(pmIdx, 12));
         
-        // CRITICAL VALIDATION: Points, rebounds, assists, etc. can NEVER be negative
-        // These are counting stats that must be >= 0
+        // CRITICAL VALIDATION: Basketball counting stats can NEVER be negative
+        // If we got a negative value, something went wrong with index detection
         points = Math.max(0, points);
         rebounds = Math.max(0, rebounds);
         assists = Math.max(0, assists);
@@ -720,8 +629,10 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
         const teamAbbrev = team.team?.abbreviation;
         const teamName = team.team?.displayName;
         
-        // Try multiple paths to get athletes
-        const athletes = team.statistics?.[0]?.athletes || team.athletes || [];
+        // Get labels and athletes from statistics - labels are at team level, not player level
+        const statGroup = team.statistics?.[0] || {};
+        const teamLabels = statGroup.labels || [];
+        const athletes = statGroup.athletes || team.athletes || [];
         
         logger.info('Processing boxscore players for team', { 
           teamId, 
@@ -730,19 +641,21 @@ export async function fetchGameDetail(gameId: string): Promise<ESPNGameDetail | 
           athletesCount: athletes.length,
           hasStatistics: !!team.statistics,
           statisticsLength: team.statistics?.length || 0,
+          labelsFound: teamLabels.length,
+          labels: teamLabels,
         });
         
         const isHomeTeam = teamId === homeTeam.id || teamAbbrev === homeTeam.abbreviation;
         
         if (isHomeTeam) {
-          homeStats = parsePlayerStats(athletes, teamId);
+          homeStats = parsePlayerStats(athletes, teamId, teamLabels);
           logger.info('Home team player stats parsed', { 
             teamName,
             playerCount: homeStats.length,
             topScorer: homeStats[0] ? `${homeStats[0].player.shortName} (${homeStats[0].points} pts)` : 'none'
           });
         } else {
-          awayStats = parsePlayerStats(athletes, teamId);
+          awayStats = parsePlayerStats(athletes, teamId, teamLabels);
           logger.info('Away team player stats parsed', { 
             teamName,
             playerCount: awayStats.length,
