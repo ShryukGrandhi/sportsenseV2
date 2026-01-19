@@ -48,8 +48,9 @@ export function useLiveGameUpdates(
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
+  const isMountedRef = useRef(true);
   const maxReconnectAttempts = 5;
-  const baseReconnectDelay = 1000;
+  const baseReconnectDelay = 2000;
 
   // Calculate reconnect delay with exponential backoff
   const getReconnectDelay = useCallback(() => {
@@ -61,19 +62,31 @@ export function useLiveGameUpdates(
 
   // Connect to SSE stream
   const connect = useCallback(() => {
-    if (!enabled || typeof window === 'undefined') return;
+    // Don't connect if not mounted, not enabled, or not in browser
+    if (!isMountedRef.current || !enabled || typeof window === 'undefined') {
+      return;
+    }
     
     // Clean up existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    
+    // Clear any pending reconnect
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
 
-    console.log('[LiveUpdates] Connecting to SSE stream...');
-    
     const eventSource = new EventSource('/api/live/nba/stream');
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
+      if (!isMountedRef.current) {
+        eventSource.close();
+        return;
+      }
       console.log('[LiveUpdates] Connected to SSE stream');
       setIsConnected(true);
       setError(null);
@@ -82,16 +95,17 @@ export function useLiveGameUpdates(
     };
 
     eventSource.onmessage = (event) => {
+      if (!isMountedRef.current) return;
+      
       try {
         const data: SSEMessage = JSON.parse(event.data);
         
         if (data.type === 'connected') {
-          console.log('[LiveUpdates] Initial connection confirmed');
           return;
         }
         
         if (data.type === 'error') {
-          console.error('[LiveUpdates] Server error:', data.message);
+          console.warn('[LiveUpdates] Server error:', data.message);
           setError(data.message || 'Unknown error');
           return;
         }
@@ -116,52 +130,62 @@ export function useLiveGameUpdates(
           onGameUpdate?.(data.games);
         }
       } catch (e) {
-        console.error('[LiveUpdates] Failed to parse SSE message:', e);
+        // Silent fail for parse errors during development
       }
     };
 
-    eventSource.onerror = (event) => {
-      console.error('[LiveUpdates] SSE connection error:', event);
+    eventSource.onerror = () => {
+      // Don't handle errors if component unmounted
+      if (!isMountedRef.current) {
+        eventSource.close();
+        return;
+      }
+      
       setIsConnected(false);
       onConnectionChange?.(false);
       
       eventSource.close();
       eventSourceRef.current = null;
 
-      // Attempt to reconnect with exponential backoff
-      if (reconnectAttempts.current < maxReconnectAttempts) {
+      // Only attempt reconnect if still mounted and under max attempts
+      if (isMountedRef.current && reconnectAttempts.current < maxReconnectAttempts) {
         const delay = getReconnectDelay();
-        console.log(`[LiveUpdates] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1}/${maxReconnectAttempts})`);
         
         reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectAttempts.current += 1;
-          connect();
+          if (isMountedRef.current) {
+            reconnectAttempts.current += 1;
+            connect();
+          }
         }, delay);
-      } else {
-        setError('Failed to connect after multiple attempts. Please refresh the page.');
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        setError('Connection lost. Please refresh the page.');
       }
-    };
-
-    return () => {
-      eventSource.close();
     };
   }, [enabled, onScoreChange, onGameUpdate, onConnectionChange, getReconnectDelay]);
 
-  // Initial connection
+  // Initial connection and cleanup
   useEffect(() => {
-    // Connect if enabled, regardless of game status (so we get updates when games start)
-    if (enabled) {
-      connect();
-    }
+    isMountedRef.current = true;
+    
+    // Delay initial connection slightly to avoid React Strict Mode issues
+    const initTimeout = setTimeout(() => {
+      if (enabled && isMountedRef.current) {
+        connect();
+      }
+    }, 200);
 
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
+      isMountedRef.current = false;
+      clearTimeout(initTimeout);
+      
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+      
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
   }, [enabled, connect]);
@@ -186,6 +210,10 @@ export function useLiveGameUpdates(
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
     setIsConnected(false);
     onConnectionChange?.(false);
   }, [onConnectionChange]);
@@ -209,6 +237,3 @@ export function useLiveGameUpdates(
 }
 
 export default useLiveGameUpdates;
-
-
-

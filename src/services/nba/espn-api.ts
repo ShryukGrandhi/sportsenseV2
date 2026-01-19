@@ -1639,3 +1639,387 @@ export async function fetchTeamPreviousGames(teamId: string, limit: number = 5):
   return games;
 }
 
+// ============================================
+// PLAYER SEARCH
+// ============================================
+
+export interface ESPNPlayerSearchResult {
+  id: string;
+  name: string;
+  displayName: string;
+  shortName: string;
+  position: string;
+  jersey: string;
+  headshot?: string;
+  team?: {
+    id: string;
+    name: string;
+    abbreviation: string;
+    logo: string;
+  };
+}
+
+/**
+ * Search for NBA players by name using ESPN's athlete search API
+ */
+export async function searchPlayers(query: string, limit: number = 10): Promise<ESPNPlayerSearchResult[]> {
+  if (!query || query.trim().length < 2) {
+    return [];
+  }
+
+  const searchQuery = encodeURIComponent(query.trim());
+  
+  // ESPN's athlete search endpoint
+  const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${searchQuery}&limit=${limit}&type=player&sport=basketball&league=nba`;
+  
+  logger.info(`[searchPlayers] Searching for: ${query}`);
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    
+    if (!response.ok) {
+      logger.warn(`[searchPlayers] Search API returned ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    const results: ESPNPlayerSearchResult[] = [];
+    
+    // ESPN search returns results in different structures
+    const items = data.results || data.athletes || data.items || [];
+    
+    for (const item of items) {
+      // Handle different response structures
+      const athlete = item.athlete || item;
+      
+      if (!athlete.id) continue;
+      
+      results.push({
+        id: String(athlete.id),
+        name: athlete.displayName || athlete.fullName || athlete.name || '',
+        displayName: athlete.displayName || athlete.fullName || '',
+        shortName: athlete.shortName || athlete.lastName || '',
+        position: athlete.position?.abbreviation || athlete.position?.name || '',
+        jersey: athlete.jersey || '',
+        headshot: athlete.headshot?.href || `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${athlete.id}.png&w=350&h=254`,
+        team: athlete.team ? {
+          id: String(athlete.team.id),
+          name: athlete.team.displayName || athlete.team.name || '',
+          abbreviation: athlete.team.abbreviation || '',
+          logo: athlete.team.logos?.[0]?.href || `https://a.espncdn.com/i/teamlogos/nba/500/${athlete.team.abbreviation?.toLowerCase()}.png`,
+        } : undefined,
+      });
+    }
+    
+    logger.info(`[searchPlayers] Found ${results.length} results for "${query}"`);
+    return results.slice(0, limit);
+    
+  } catch (error) {
+    logger.error('[searchPlayers] Search failed', { query, error: (error as Error).message });
+    return [];
+  }
+}
+
+/**
+ * Fetch detailed player info including bio
+ * Uses the core ESPN API which is more reliable for athlete data
+ */
+export async function fetchPlayerDetail(playerId: string): Promise<{
+  id: string;
+  name: string;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  position: string;
+  jersey: string;
+  height: string;
+  weight: string;
+  birthDate: string;
+  birthPlace: string;
+  college: string;
+  draft: string;
+  experience: number;
+  headshot: string;
+  team?: {
+    id: string;
+    name: string;
+    abbreviation: string;
+    logo: string;
+    color: string;
+  };
+} | null> {
+  // Use the core ESPN API - more reliable for athlete data
+  const coreUrl = `https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/athletes/${playerId}`;
+  
+  logger.info(`[fetchPlayerDetail] Fetching player ${playerId} from core API`);
+  
+  try {
+    const response = await fetch(coreUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+    
+    if (!response.ok) {
+      logger.warn(`[fetchPlayerDetail] Core API returned ${response.status} for player ${playerId}`);
+      return null;
+    }
+    
+    const athlete = await response.json();
+    
+    if (!athlete || !athlete.id) {
+      return null;
+    }
+    
+    // Fetch team info if available (it's a $ref in the core API)
+    let teamInfo: {
+      id: string;
+      name: string;
+      abbreviation: string;
+      logo: string;
+      color: string;
+    } | undefined;
+    
+    if (athlete.team?.$ref) {
+      try {
+        const teamRes = await fetch(athlete.team.$ref);
+        if (teamRes.ok) {
+          const team = await teamRes.json();
+          teamInfo = {
+            id: String(team.id),
+            name: team.displayName || team.name || '',
+            abbreviation: team.abbreviation || '',
+            logo: team.logos?.[0]?.href || `https://a.espncdn.com/i/teamlogos/nba/500/${team.abbreviation?.toLowerCase()}.png`,
+            color: team.color || '#333',
+          };
+        }
+      } catch {
+        // Team fetch failed, continue without team info
+      }
+    }
+    
+    // Fetch position info if available
+    let position = '';
+    if (athlete.position?.$ref) {
+      try {
+        const posRes = await fetch(athlete.position.$ref);
+        if (posRes.ok) {
+          const pos = await posRes.json();
+          position = pos.displayName || pos.abbreviation || '';
+        }
+      } catch {
+        // Position fetch failed
+      }
+    }
+    
+    // Parse draft info - can be direct object or $ref
+    let draftInfo = 'Undrafted';
+    if (athlete.draft) {
+      // Check if draft info is directly available
+      if (athlete.draft.year && athlete.draft.round && athlete.draft.selection) {
+        draftInfo = `${athlete.draft.year} Round ${athlete.draft.round}, Pick ${athlete.draft.selection}`;
+      } else if (athlete.draft.displayText) {
+        // Use displayText if available
+        draftInfo = athlete.draft.displayText;
+      } else if (athlete.draft.$ref) {
+        // Fallback to fetching from $ref
+        try {
+          const draftRes = await fetch(athlete.draft.$ref);
+          if (draftRes.ok) {
+            const d = await draftRes.json();
+            draftInfo = `${d.year} Round ${d.round}, Pick ${d.selection}`;
+          }
+        } catch {
+          // Draft fetch failed
+        }
+      }
+    }
+    
+    // Parse college info
+    let college = '';
+    if (athlete.college?.$ref) {
+      try {
+        const collegeRes = await fetch(athlete.college.$ref);
+        if (collegeRes.ok) {
+          const c = await collegeRes.json();
+          college = c.name || '';
+        }
+      } catch {
+        // College fetch failed
+      }
+    }
+    
+    // Parse birth place
+    let birthPlace = '';
+    if (athlete.birthPlace?.$ref) {
+      try {
+        const placeRes = await fetch(athlete.birthPlace.$ref);
+        if (placeRes.ok) {
+          const place = await placeRes.json();
+          birthPlace = place.city && place.country 
+            ? `${place.city}, ${place.country}`
+            : place.country || '';
+        }
+      } catch {
+        // Birth place fetch failed
+      }
+    }
+    
+    return {
+      id: String(athlete.id),
+      name: athlete.displayName || athlete.fullName || '',
+      displayName: athlete.displayName || athlete.fullName || '',
+      firstName: athlete.firstName || '',
+      lastName: athlete.lastName || '',
+      position,
+      jersey: athlete.jersey || '',
+      height: athlete.displayHeight || '',
+      weight: athlete.displayWeight || '',
+      birthDate: athlete.dateOfBirth || '',
+      birthPlace,
+      college,
+      draft: draftInfo,
+      experience: athlete.experience?.years || (athlete.debutYear ? new Date().getFullYear() - athlete.debutYear : 0),
+      headshot: athlete.headshot?.href || `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerId}.png&w=350&h=254`,
+      team: teamInfo,
+    };
+    
+  } catch (error) {
+    logger.error('[fetchPlayerDetail] Failed', { playerId, error: (error as Error).message });
+    return null;
+  }
+}
+
+/**
+ * Fetch player's recent game logs
+ */
+export async function fetchPlayerGameLogs(playerId: string, limit: number = 10): Promise<{
+  gameId: string;
+  date: string;
+  opponent: string;
+  isHome: boolean;
+  result: 'W' | 'L';
+  minutes: number;
+  points: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  fgm: number;
+  fga: number;
+  fg3m: number;
+  fg3a: number;
+}[]> {
+  const seasonYear = getCurrentSeason() + 1; // ESPN uses the end year (2025-26 = 2026)
+  const url = `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${playerId}/gamelog?seasontype=2&season=${seasonYear}`;
+  
+  logger.info(`[fetchPlayerGameLogs] Fetching game logs for player ${playerId}, season ${seasonYear}`);
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+    });
+    
+    if (!response.ok) {
+      logger.warn(`[fetchPlayerGameLogs] Failed with status ${response.status}`);
+      return [];
+    }
+    
+    const data = await response.json();
+    const games: {
+      gameId: string;
+      date: string;
+      opponent: string;
+      isHome: boolean;
+      result: 'W' | 'L';
+      minutes: number;
+      points: number;
+      rebounds: number;
+      assists: number;
+      steals: number;
+      blocks: number;
+      fgm: number;
+      fga: number;
+      fg3m: number;
+      fg3a: number;
+    }[] = [];
+    
+    // ESPN gamelog structure:
+    // - events: { [gameId]: { gameDate, opponent, atVs, gameResult, ... } }
+    // - seasonTypes[].categories[].events[]: { eventId, stats[] }
+    // - labels: ['MIN', 'FG', 'FG%', '3PT', '3P%', 'FT', 'FT%', 'REB', 'AST', 'BLK', 'STL', 'PF', 'TO', 'PTS']
+    
+    const eventsMap = data.events || {};
+    const seasonTypes = data.seasonTypes || [];
+    
+    // Build a map of eventId -> stats from seasonTypes
+    const statsMap: Map<string, string[]> = new Map();
+    for (const seasonType of seasonTypes) {
+      for (const category of seasonType.categories || []) {
+        for (const event of category.events || []) {
+          if (event.eventId && event.stats) {
+            statsMap.set(event.eventId, event.stats);
+          }
+        }
+      }
+    }
+    
+    // Parse shooting stats (e.g., "6-16" -> [6, 16])
+    const parseShooting = (str: string): [number, number] => {
+      if (!str || str === '--') return [0, 0];
+      const parts = str.split('-');
+      if (parts.length !== 2) return [0, 0];
+      return [parseInt(parts[0]) || 0, parseInt(parts[1]) || 0];
+    };
+    
+    // Process each event from the events map
+    for (const [gameId, eventData] of Object.entries(eventsMap)) {
+      if (games.length >= limit) break;
+      
+      const event = eventData as any;
+      const stats = statsMap.get(gameId) || [];
+      
+      // Stats order: MIN, FG, FG%, 3PT, 3P%, FT, FT%, REB, AST, BLK, STL, PF, TO, PTS
+      const [fgm, fga] = parseShooting(stats[1] || '0-0');
+      const [fg3m, fg3a] = parseShooting(stats[3] || '0-0');
+      
+      games.push({
+        gameId,
+        date: event.gameDate || '',
+        opponent: event.opponent?.abbreviation || '',
+        isHome: event.atVs === 'vs',
+        result: event.gameResult === 'W' ? 'W' : 'L',
+        minutes: parseInt(stats[0]) || 0,
+        points: parseInt(stats[13]) || 0,
+        rebounds: parseInt(stats[7]) || 0,
+        assists: parseInt(stats[8]) || 0,
+        steals: parseInt(stats[10]) || 0,
+        blocks: parseInt(stats[9]) || 0,
+        fgm,
+        fga,
+        fg3m,
+        fg3a,
+      });
+    }
+    
+    // Sort by date descending (most recent first)
+    games.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    logger.info(`[fetchPlayerGameLogs] Found ${games.length} game logs for player ${playerId}`);
+    return games.slice(0, limit);
+    
+  } catch (error) {
+    logger.error('[fetchPlayerGameLogs] Failed', { playerId, error: (error as Error).message });
+    return [];
+  }
+}
+
