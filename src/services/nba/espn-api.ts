@@ -1675,12 +1675,19 @@ export async function searchPlayers(query: string, limit: number = 10): Promise<
   logger.info(`[searchPlayers] Searching for: ${query}`);
   
   try {
+    // Add timeout for serverless environments
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    
     const response = await fetch(url, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       logger.warn(`[searchPlayers] Search API returned ${response.status}`);
@@ -1759,12 +1766,19 @@ export async function fetchPlayerDetail(playerId: string): Promise<{
   logger.info(`[fetchPlayerDetail] Fetching player ${playerId} from core API`);
   
   try {
+    // Add timeout for serverless environments
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    
     const response = await fetch(coreUrl, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0',
       },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       logger.warn(`[fetchPlayerDetail] Core API returned ${response.status} for player ${playerId}`);
@@ -2022,4 +2036,3 @@ export async function fetchPlayerGameLogs(playerId: string, limit: number = 10):
     return [];
   }
 }
-

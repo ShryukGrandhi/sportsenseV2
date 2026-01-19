@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { searchPlayers } from '@/services/nba/espn-api';
 import { prisma } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 30; // 30 second timeout for Vercel
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get('q') || '';
@@ -17,25 +20,31 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // First try to search in our database for faster results
-    const dbPlayers = await prisma.player.findMany({
-      where: {
-        OR: [
-          { fullName: { contains: query, mode: 'insensitive' } },
-          { firstName: { contains: query, mode: 'insensitive' } },
-          { lastName: { contains: query, mode: 'insensitive' } },
-        ],
-        isActive: true,
-      },
-      include: {
-        team: true,
-      },
-      take: limit,
-      orderBy: { fullName: 'asc' },
-    });
+    // Try database first, but don't fail if database is unavailable
+    let dbPlayers: any[] = [];
+    try {
+      dbPlayers = await prisma.player.findMany({
+        where: {
+          OR: [
+            { fullName: { contains: query, mode: 'insensitive' } },
+            { firstName: { contains: query, mode: 'insensitive' } },
+            { lastName: { contains: query, mode: 'insensitive' } },
+          ],
+          isActive: true,
+        },
+        include: {
+          team: true,
+        },
+        take: limit,
+        orderBy: { fullName: 'asc' },
+      });
+    } catch (dbError) {
+      console.warn('[Player Search] Database query failed, falling back to ESPN:', dbError);
+      // Continue to ESPN API fallback
+    }
 
     if (dbPlayers.length > 0) {
-      const results = dbPlayers.map(p => ({
+      const results = dbPlayers.map((p: any) => ({
         id: p.externalId,
         name: p.fullName,
         displayName: p.fullName,

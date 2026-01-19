@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchPlayerDetail, fetchPlayerStats, fetchPlayerGameLogs } from '@/services/nba/espn-api';
 import { prisma } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 30; // 30 second timeout for Vercel
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -25,16 +28,21 @@ export async function GET(
     ]);
 
     if (!playerDetail) {
-      // Try to find in database
-      const dbPlayer = await prisma.player.findFirst({
-        where: {
-          OR: [
-            { externalId: playerId },
-            { id: playerId },
-          ],
-        },
-        include: { team: true },
-      });
+      // Try to find in database (with error handling)
+      let dbPlayer = null;
+      try {
+        dbPlayer = await prisma.player.findFirst({
+          where: {
+            OR: [
+              { externalId: playerId },
+              { id: playerId },
+            ],
+          },
+          include: { team: true },
+        });
+      } catch (dbError) {
+        console.warn('[Player Detail] Database query failed:', dbError);
+      }
 
       if (dbPlayer) {
         return NextResponse.json({
