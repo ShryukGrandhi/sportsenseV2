@@ -151,31 +151,69 @@ async function buildContextFromLiveData(params: {
     assists: parseLeaderValue(target.leaders?.away.assists || undefined) || undefined,
   };
 
-  const needsBoxscore =
-    !homeLeaders.points || !homeLeaders.rebounds || !homeLeaders.assists ||
-    !awayLeaders.points || !awayLeaders.rebounds || !awayLeaders.assists;
+  // Always fetch boxscore to get bench scoring and inactive player data
+  let benchScoring: AIGameContext['benchScoring'] = [];
+  let inactivePlayers: AIGameContext['inactivePlayers'] = [];
 
-  if (needsBoxscore) {
-    const boxscore = await fetchGameBoxscore(target.gameId);
-    if (boxscore) {
-      const topBy = (players: { points: number; rebounds: number; assists: number; name: string }[], key: 'points' | 'rebounds' | 'assists') => {
-        if (!players.length) return undefined;
-        const leader = players.reduce((max, p) => (p[key] > max[key] ? p : max));
-        if (!leader[key]) return undefined;
-        return { player: leader.name, value: leader[key] };
-      };
+  const boxscore = await fetchGameBoxscore(target.gameId);
+  if (boxscore) {
+    const topBy = (players: { points: number; rebounds: number; assists: number; name: string }[], key: 'points' | 'rebounds' | 'assists') => {
+      if (!players.length) return undefined;
+      const leader = players.reduce((max, p) => (p[key] > max[key] ? p : max));
+      if (!leader[key]) return undefined;
+      return { player: leader.name, value: leader[key] };
+    };
 
-      homeLeaders = {
-        points: homeLeaders.points || topBy(boxscore.homePlayers, 'points'),
-        rebounds: homeLeaders.rebounds || topBy(boxscore.homePlayers, 'rebounds'),
-        assists: homeLeaders.assists || topBy(boxscore.homePlayers, 'assists'),
-      };
+    // Update leaders if not already set
+    homeLeaders = {
+      points: homeLeaders.points || topBy(boxscore.homePlayers, 'points'),
+      rebounds: homeLeaders.rebounds || topBy(boxscore.homePlayers, 'rebounds'),
+      assists: homeLeaders.assists || topBy(boxscore.homePlayers, 'assists'),
+    };
 
-      awayLeaders = {
-        points: awayLeaders.points || topBy(boxscore.awayPlayers, 'points'),
-        rebounds: awayLeaders.rebounds || topBy(boxscore.awayPlayers, 'rebounds'),
-        assists: awayLeaders.assists || topBy(boxscore.awayPlayers, 'assists'),
-      };
+    awayLeaders = {
+      points: awayLeaders.points || topBy(boxscore.awayPlayers, 'points'),
+      rebounds: awayLeaders.rebounds || topBy(boxscore.awayPlayers, 'rebounds'),
+      assists: awayLeaders.assists || topBy(boxscore.awayPlayers, 'assists'),
+    };
+
+    // Extract bench scorers (non-starters with 10+ points)
+    const BENCH_SCORING_THRESHOLD = 10;
+    const homeBench = boxscore.homePlayers
+      .filter(p => !p.starter && p.points >= BENCH_SCORING_THRESHOLD)
+      .sort((a, b) => b.points - a.points)
+      .map(p => ({ player: p.name, points: p.points, team: 'home' as const }));
+    
+    const awayBench = boxscore.awayPlayers
+      .filter(p => !p.starter && p.points >= BENCH_SCORING_THRESHOLD)
+      .sort((a, b) => b.points - a.points)
+      .map(p => ({ player: p.name, points: p.points, team: 'away' as const }));
+    
+    benchScoring = [...homeBench, ...awayBench];
+    
+    // Log bench scoring for debugging
+    if (benchScoring.length > 0) {
+      console.log('[AI Summary] Bench contributors found:', benchScoring);
+    }
+
+    // Extract inactive/DNP players
+    const homeInactive = boxscore.homeInactive.map(p => ({
+      player: p.name,
+      team: 'home' as const,
+      reason: p.reason,
+    }));
+    
+    const awayInactive = boxscore.awayInactive.map(p => ({
+      player: p.name,
+      team: 'away' as const,
+      reason: p.reason,
+    }));
+    
+    inactivePlayers = [...homeInactive, ...awayInactive];
+    
+    // Log inactive players for debugging
+    if (inactivePlayers.length > 0) {
+      console.log('[AI Summary] Inactive players found:', inactivePlayers);
     }
   }
 
@@ -193,6 +231,8 @@ async function buildContextFromLiveData(params: {
     recentPlays: [],
     homeLeaders,
     awayLeaders,
+    benchScoring: benchScoring.length > 0 ? benchScoring : undefined,
+    inactivePlayers: inactivePlayers.length > 0 ? inactivePlayers : undefined,
     dataSource: liveData.source,
     dataTimestamp: liveData.lastUpdated,
   };

@@ -833,6 +833,14 @@ export interface PlayerBoxscoreStats {
   ftm: number;
   fta: number;
   plusMinus: string;
+  starter?: boolean; // Whether player started the game
+}
+
+export interface InactivePlayer {
+  playerId: string;
+  name: string;
+  team: string;
+  reason?: string; // 'DNP', 'injury', 'rest', etc.
 }
 
 export interface GameBoxscore {
@@ -844,6 +852,8 @@ export interface GameBoxscore {
   status: string;
   homePlayers: PlayerBoxscoreStats[];
   awayPlayers: PlayerBoxscoreStats[];
+  homeInactive: InactivePlayer[];
+  awayInactive: InactivePlayer[];
 }
 
 // Fetch detailed boxscore for a specific game
@@ -867,8 +877,8 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
     // ESPN uses different stat orderings in different games/endpoints:
     // Format 1: [MIN, FG, 3PT, FT, OREB, DREB, REB, AST, STL, BLK, TO, PF, +/-, PTS]
     // Format 2: [MIN, PTS, FG, 3PT, FT, REB, AST, TO, STL, BLK, OREB, DREB, PF, +/-]
-    const parsePlayerStats = (players: any[], teamAbbr: string, labels: string[]): PlayerBoxscoreStats[] => {
-      if (!players || !Array.isArray(players)) return [];
+    const parsePlayerStats = (players: any[], teamAbbr: string, labels: string[]): { active: PlayerBoxscoreStats[]; inactive: InactivePlayer[] } => {
+      if (!players || !Array.isArray(players)) return { active: [], inactive: [] };
       
       // Build index map from labels (case-insensitive)
       const labelMap: Record<string, number> = {};
@@ -899,7 +909,17 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
       const blkIdx = getIndex(['BLK', 'Blocks']);
       const pmIdx = getIndex(['+/-', 'PM', 'PLUSMINUS', 'Plus/Minus']);
       
-      return players.filter(p => !p.didNotPlay).map(p => {
+      // Collect inactive/DNP players
+      const inactive: InactivePlayer[] = players
+        .filter(p => p.didNotPlay)
+        .map(p => ({
+          playerId: String(p.athlete?.id || p.id || ''),
+          name: p.athlete?.displayName || p.athlete?.fullName || p.displayName || p.fullName || p.name || 'Unknown',
+          team: teamAbbr,
+          reason: p.reason || 'DNP', // ESPN may provide reason like 'DNP - Coach\'s Decision', 'DNP - Injury'
+        }));
+      
+      const active = players.filter(p => !p.didNotPlay).map(p => {
         const stats = p.stats || [];
         
         const parseShooting = (str: string): [number, number] => {
@@ -929,6 +949,9 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
         const headshot = playerId 
           ? `https://a.espncdn.com/i/headshots/nba/players/full/${playerId}.png`
           : '';
+        
+        // Check if player is a starter (ESPN provides this field)
+        const starter = p.starter === true;
         
         // Get stats using label-based indices
         const minutes = getStatByIndex(minIdx);
@@ -968,12 +991,17 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
           turnovers,
           fgm, fga, fg3m, fg3a, ftm, fta,
           plusMinus,
+          starter,
         };
       }).filter(p => p.minutes !== '0' && p.minutes !== '--');
+      
+      return { active, inactive };
     };
     
     let homePlayers: PlayerBoxscoreStats[] = [];
     let awayPlayers: PlayerBoxscoreStats[] = [];
+    let homeInactive: InactivePlayer[] = [];
+    let awayInactive: InactivePlayer[] = [];
     
     // Find player statistics from boxscore.players
     if (boxscore.players) {
@@ -985,10 +1013,14 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
         const labels = statGroup.labels || [];
         const playerStats = statGroup.athletes || [];
         
+        const parsed = parsePlayerStats(playerStats, teamAbbr, labels);
+        
         if (teamId === homeComp?.id) {
-          homePlayers = parsePlayerStats(playerStats, teamAbbr, labels);
+          homePlayers = parsed.active;
+          homeInactive = parsed.inactive;
         } else {
-          awayPlayers = parsePlayerStats(playerStats, teamAbbr, labels);
+          awayPlayers = parsed.active;
+          awayInactive = parsed.inactive;
         }
       }
     }
@@ -1002,6 +1034,8 @@ export async function fetchGameBoxscore(gameId: string): Promise<GameBoxscore | 
       status: competition.status?.type?.name || 'scheduled',
       homePlayers,
       awayPlayers,
+      homeInactive,
+      awayInactive,
     };
   } catch (error) {
     logger.error('Failed to fetch game boxscore', { gameId, error: (error as Error).message });

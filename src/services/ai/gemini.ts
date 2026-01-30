@@ -115,21 +115,45 @@ export async function generateGameSummary(
   }
 
   try {
-    const { game, homeLeaders, awayLeaders } = context;
+    const { game, homeLeaders, awayLeaders, benchScoring, inactivePlayers } = context;
 
     // Build compact data string
     const homeTop = homeLeaders.points ? `${homeLeaders.points.player} ${homeLeaders.points.value}pts` : '';
     const awayTop = awayLeaders.points ? `${awayLeaders.points.player} ${awayLeaders.points.value}pts` : '';
 
+    // Build bench scoring context
+    let benchContext = '';
+    if (benchScoring && benchScoring.length > 0) {
+      const benchStrs = benchScoring.map(b => `${b.player} ${b.points}pts`);
+      benchContext = `\nBench contributors: ${benchStrs.join(', ')}`;
+    }
+
+    // Build inactive players context
+    let inactiveContext = '';
+    if (inactivePlayers && inactivePlayers.length > 0) {
+      const inactiveStrs = inactivePlayers.map(p => p.player);
+      inactiveContext = `\nDid not play: ${inactiveStrs.join(', ')}`;
+    }
+
     const prompt = `${game.awayTeam} ${game.awayScore}, ${game.homeTeam} ${game.homeScore} (${type === 'halftime' ? 'Halftime' : 'Final'})
-Top: ${awayTop} | ${homeTop}
+Top scorers: ${awayTop} | ${homeTop}${benchContext}${inactiveContext}
 
-Write 3-4 sentences: score summary, top performer, key moment, one insight. NO headers, NO bullets, NO sections. Plain paragraph only.`;
+Write 3-4 sentences covering:
+1. Final score and game flow
+2. Top performer(s) and their impact
+3. Notable bench contributions if any players stepped up off the bench
+4. If key players were out, mention how the team adjusted or the context of the result
 
+Write as a professional sports recap like ESPN or The Athletic. NO headers, NO bullets, NO sections. Plain paragraph only.`;
+
+    // Increase token limit slightly to accommodate richer recaps
     const requestParams: any = {
       model: MODEL_NAME,
       contents: prompt,
-      generationConfig: GENERATION_CONFIG,
+      generationConfig: {
+        ...GENERATION_CONFIG,
+        maxOutputTokens: 200, // Increased from 150 to allow for richer context
+      },
     };
 
     const response = await ai.models.generateContent(requestParams);

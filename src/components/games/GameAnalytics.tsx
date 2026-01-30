@@ -127,7 +127,7 @@ export function GameAnalytics({
 
   // Scoring breakdown pie chart data
   const scoringBreakdown = useMemo(() => [
-    { name: '2PT', home: (homeTotals.fgm - homeTotals.fg3m) * 2, away: (awayTotals.fgm - awayTotals.fg3m) * 2 },
+    { name: 'FG', home: (homeTotals.fgm - homeTotals.fg3m) * 2, away: (awayTotals.fgm - awayTotals.fg3m) * 2 },
     { name: '3PT', home: homeTotals.fg3m * 3, away: awayTotals.fg3m * 3 },
     { name: 'FT', home: homeTotals.ftm, away: awayTotals.ftm },
   ], [homeTotals, awayTotals]);

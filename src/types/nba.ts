@@ -136,6 +136,18 @@ export interface AIGameContext {
     rebounds?: { player: string; value: number };
     assists?: { player: string; value: number };
   };
+  // Bench contributors with 10+ points
+  benchScoring?: {
+    player: string;
+    points: number;
+    team: 'home' | 'away';
+  }[];
+  // Notable players who did not play (DNP, injury, rest)
+  inactivePlayers?: {
+    player: string;
+    team: 'home' | 'away';
+    reason?: string; // 'DNP', 'injury', 'rest', etc.
+  }[];
   dataSource: string;
   dataTimestamp: string;
 }
