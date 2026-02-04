@@ -11,7 +11,7 @@ import {
   Plus, ArrowUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
+import { 
   AIVisualRenderer,
   type AIVisualResponse,
 } from '@/components/ai/ChatVisuals';
@@ -472,7 +472,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Vapi Call Button - Fixed Bottom Right (offset) */}
+      {/* VAPI Call Button - Fixed Bottom Right */}
       <VapiCallButton />
 
       {/* Settings Button - Fixed Bottom Right */}
@@ -480,8 +480,8 @@ export default function ChatPage() {
         onClick={() => setShowSettings(!showSettings)}
         className={cn(
           "fixed bottom-6 right-6 p-4 rounded-full transition-all shadow-lg z-40",
-          showSettings
-            ? "bg-gradient-to-br from-orange-500 to-blue-500 text-white shadow-orange-500/20"
+          showSettings 
+            ? "bg-gradient-to-br from-orange-500 to-blue-500 text-white shadow-orange-500/20" 
             : "glass hover:bg-white/20 text-white/70 hover:text-white border border-white/10"
         )}
       >

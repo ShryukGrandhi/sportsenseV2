@@ -89,17 +89,8 @@ function TeamRow({
   );
 }
 
-function getSeasonLabel(): string {
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
-  const seasonStartYear = month >= 10 ? year : year - 1;
-  return `${seasonStartYear}-${String(seasonStartYear + 1).slice(-2)}`;
-}
-
 export default async function NBAStandingsPage() {
   const { east, west, source, sourceUrl } = await fetchStandings();
-  const seasonLabel = getSeasonLabel();
 
   return (
     <div className="min-h-screen">
@@ -123,7 +114,7 @@ export default async function NBAStandingsPage() {
             <span className="gradient-text-orange">NBA</span>
             <span className="text-white"> Standings</span>
           </h1>
-          <p className="text-white/60">{seasonLabel} Regular Season</p>
+          <p className="text-white/60">2024-25 Regular Season</p>
           
           {/* Source */}
           <div className="mt-4">

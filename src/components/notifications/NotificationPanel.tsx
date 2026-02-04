@@ -4,21 +4,20 @@
 // Integrates with NotificationProvider context
 
 import { useState } from 'react';
-import {
-  Bell,
-  X,
-  Check,
-  CheckCheck,
-  Trash2,
-  Trophy,
-  Zap,
-  AlertTriangle,
+import { 
+  Bell, 
+  X, 
+  Check, 
+  CheckCheck, 
+  Trash2, 
+  Trophy, 
+  Zap, 
+  AlertTriangle, 
   Info,
   Volume2,
   VolumeX,
   ChevronDown,
   Filter,
-  MessageSquare,
 } from 'lucide-react';
 import { useNotifications, type Notification } from './NotificationProvider';
 import { cn } from '@/lib/utils';
@@ -45,12 +44,6 @@ const COLOR_MAP = {
 
 type FilterType = 'all' | 'unread' | 'score' | 'highlight' | 'alert' | 'info';
 
-const NBA_TEAM_ABBREVIATIONS = [
-  'ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GS',
-  'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NO', 'NY',
-  'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SA', 'TOR', 'UTAH', 'WSH',
-];
-
 export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
   const {
     notifications,
@@ -61,12 +54,6 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
     clearAll,
     soundEnabled,
     toggleSound,
-    followedTeams,
-    toggleTeamFollow,
-    smsEnabled,
-    smsPhoneNumber,
-    toggleSms,
-    setSmsPhoneNumber,
   } = useNotifications();
 
   const [filter, setFilter] = useState<FilterType>('all');
@@ -112,27 +99,13 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
                 onClick={toggleSound}
                 className={cn(
                   "p-2 rounded-lg transition-colors",
-                  soundEnabled
-                    ? "text-green-400 hover:bg-green-500/20"
+                  soundEnabled 
+                    ? "text-green-400 hover:bg-green-500/20" 
                     : "text-white/40 hover:bg-white/10"
                 )}
                 title={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}
               >
                 {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-              </button>
-
-              {/* SMS Toggle */}
-              <button
-                onClick={toggleSms}
-                className={cn(
-                  "p-2 rounded-lg transition-colors",
-                  smsEnabled
-                    ? "text-blue-400 hover:bg-blue-500/20"
-                    : "text-white/40 hover:bg-white/10"
-                )}
-                title={smsEnabled ? 'Disable SMS alerts' : 'Enable SMS alerts'}
-              >
-                <MessageSquare className="w-4 h-4" />
               </button>
 
               {/* Close */}
@@ -214,48 +187,6 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
               )}
             </div>
           </div>
-
-          {/* Team Filter */}
-          <div className="mt-3 pt-3 border-t border-white/10">
-            <p className="text-xs text-white/40 mb-2">
-              Filter by team {followedTeams.length > 0 ? `(${followedTeams.length} selected)` : '(all teams)'}
-            </p>
-            <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto scrollbar-thin">
-              {NBA_TEAM_ABBREVIATIONS.map(abbr => (
-                <button
-                  key={abbr}
-                  onClick={() => toggleTeamFollow(abbr)}
-                  className={cn(
-                    "px-2 py-1 rounded text-xs font-medium transition-colors",
-                    followedTeams.includes(abbr)
-                      ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
-                      : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
-                  )}
-                >
-                  {abbr}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* SMS Settings */}
-          {smsEnabled && (
-            <div className="mt-3 pt-3 border-t border-white/10">
-              <p className="text-xs text-white/40 mb-2">
-                SMS Alerts (score & alert notifications)
-              </p>
-              <input
-                type="tel"
-                value={smsPhoneNumber}
-                onChange={(e) => setSmsPhoneNumber(e.target.value)}
-                placeholder="+1 (555) 123-4567"
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-              />
-              <p className="text-[10px] text-white/30 mt-1">
-                Leave empty for default number
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Notifications List */}

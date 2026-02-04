@@ -36,12 +36,6 @@ interface NotificationContextType {
   clearAll: () => void;
   soundEnabled: boolean;
   toggleSound: () => void;
-  followedTeams: string[];
-  toggleTeamFollow: (abbreviation: string) => void;
-  smsEnabled: boolean;
-  smsPhoneNumber: string;
-  toggleSms: () => void;
-  setSmsPhoneNumber: (phone: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
@@ -238,54 +232,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Notification[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [followedTeams, setFollowedTeams] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = localStorage.getItem('playmaker-followed-teams');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
-  const [smsEnabled, setSmsEnabled] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return localStorage.getItem('playmaker-sms-enabled') === 'true';
-    } catch { return false; }
-  });
-  const [smsPhoneNumber, setSmsPhoneNumberState] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    try {
-      return localStorage.getItem('playmaker-sms-phone') || '';
-    } catch { return ''; }
-  });
-
-  // Persist followed teams
-  useEffect(() => {
-    localStorage.setItem('playmaker-followed-teams', JSON.stringify(followedTeams));
-  }, [followedTeams]);
-
-  // Persist SMS settings
-  useEffect(() => {
-    localStorage.setItem('playmaker-sms-enabled', String(smsEnabled));
-  }, [smsEnabled]);
-  useEffect(() => {
-    localStorage.setItem('playmaker-sms-phone', smsPhoneNumber);
-  }, [smsPhoneNumber]);
-
-  const toggleTeamFollow = useCallback((abbreviation: string) => {
-    setFollowedTeams(prev =>
-      prev.includes(abbreviation)
-        ? prev.filter(t => t !== abbreviation)
-        : [...prev, abbreviation]
-    );
-  }, []);
-
-  const toggleSms = useCallback(() => {
-    setSmsEnabled(prev => !prev);
-  }, []);
-
-  const setSmsPhoneNumber = useCallback((phone: string) => {
-    setSmsPhoneNumberState(phone);
-  }, []);
   
   // AI Insight Modal state
   const [insightModal, setInsightModal] = useState<{
@@ -342,27 +288,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       timestamp: new Date(),
       read: false,
     };
-
+    
     setNotifications(prev => [newNotification, ...prev].slice(0, 50));
     setToasts(prev => [newNotification, ...prev].slice(0, 3));
-
+    
     if (notification.sound !== false) {
       playSound(notification.type);
     }
-
-    // Send SMS for score/alert notifications when SMS is enabled
-    if (smsEnabled && (notification.type === 'score' || notification.type === 'alert')) {
-      const smsMessage = `${notification.title}: ${notification.message}`;
-      fetch('/api/vapi/sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: smsMessage,
-          phoneNumber: smsPhoneNumber || undefined,
-        }),
-      }).catch(err => console.error('[SMS] Failed to send:', err));
-    }
-  }, [playSound, smsEnabled, smsPhoneNumber]);
+  }, [playSound]);
 
   const markAsRead = useCallback((id: string) => {
     setNotifications(prev =>
@@ -433,15 +366,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         const games = data.games || [];
 
         for (const game of games) {
-          // Team filter: skip games not involving followed teams
-          if (followedTeams.length > 0) {
-            const homeAbbr = game.homeTeam?.abbreviation;
-            const awayAbbr = game.awayTeam?.abbreviation;
-            if (!followedTeams.includes(homeAbbr) && !followedTeams.includes(awayAbbr)) {
-              continue;
-            }
-          }
-
           const prevState = gameStates.get(game.gameId);
           const state = prevState || {
             lastStatus: game.status, // Initialize with current status
@@ -578,7 +502,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       clearTimeout(startPolling);
       clearInterval(intervalId);
     };
-  }, [addNotification, followedTeams]);
+  }, [addNotification]);
 
   // Welcome notification
   useEffect(() => {
@@ -606,12 +530,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         clearAll,
         soundEnabled,
         toggleSound,
-        followedTeams,
-        toggleTeamFollow,
-        smsEnabled,
-        smsPhoneNumber,
-        toggleSms,
-        setSmsPhoneNumber,
       }}
     >
       {children}

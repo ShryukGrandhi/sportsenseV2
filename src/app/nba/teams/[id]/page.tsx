@@ -1,14 +1,12 @@
-// NBA Team Detail Page - Full team information with roster, stats, and performance charts
+// NBA Team Detail Page - Full team information with roster and stats
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { ChevronLeft, Users, AlertTriangle, TrendingUp, BarChart3, ExternalLink } from 'lucide-react';
+import { ChevronLeft, Users, AlertTriangle, TrendingUp, Calendar, ExternalLink, Sparkles } from 'lucide-react';
 import { NBAHeader } from '@/components/nba/NBAHeader';
 import { fetchTeamDetail, type ESPNTeamDetail } from '@/services/nba/espn-api';
-import { fetchStandings } from '@/services/nba/live-data';
 import { TeamAnalyticsButton } from '@/components/ai/TeamAnalyticsButton';
-import { TeamPerformanceChart } from '@/components/games/TeamPerformanceChart';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -28,23 +26,11 @@ function StatCard({ label, value, color = 'white' }: { label: string; value: str
 
 export default async function TeamDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const [team, standingsData] = await Promise.all([
-    fetchTeamDetail(id),
-    fetchStandings(),
-  ]);
+  const team = await fetchTeamDetail(id);
 
   if (!team) {
     notFound();
   }
-
-  // Find team standing for streak/L10 data
-  const allTeams = [...standingsData.east, ...standingsData.west];
-  const teamStanding = allTeams.find(
-    (s) => s.abbreviation.toLowerCase() === team.abbreviation.toLowerCase()
-  );
-
-  // Compute Net Rating
-  const netRating = team.stats.ppg - team.stats.oppg;
 
   // Group players by position
   const guards = team.roster.filter(p => p.position === 'G' || p.position === 'PG' || p.position === 'SG');
@@ -54,9 +40,9 @@ export default async function TeamDetailPage({ params }: PageProps) {
   return (
     <div className="min-h-screen">
       <NBAHeader />
-
+      
       <main className="container mx-auto px-4 py-6">
-        <Link
+        <Link 
           href="/nba/teams"
           className="inline-flex items-center gap-2 text-white/60 hover:text-white text-sm mb-6 transition-colors"
         >
@@ -67,16 +53,16 @@ export default async function TeamDetailPage({ params }: PageProps) {
         {/* Team Header */}
         <div className="glass rounded-2xl p-8 mb-8 relative overflow-hidden">
           {/* Background gradient */}
-          <div
+          <div 
             className="absolute inset-0 opacity-20"
             style={{
               background: `linear-gradient(135deg, #${team.color} 0%, transparent 60%)`,
             }}
           />
-
+          
           <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
             {/* Logo */}
-            <div
+            <div 
               className="w-32 h-32 rounded-2xl flex items-center justify-center"
               style={{ backgroundColor: `#${team.color}33` }}
             >
@@ -98,8 +84,8 @@ export default async function TeamDetailPage({ params }: PageProps) {
               <p className="text-white/60 text-lg">
                 {team.standing.conference} Conference • {team.standing.division}
               </p>
-
-              {/* Record + Streak */}
+              
+              {/* Record */}
               <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-4">
                 <div className="px-4 py-2 rounded-lg bg-white/10">
                   <span className="text-2xl font-bold text-green-400">{team.record.wins}</span>
@@ -113,20 +99,6 @@ export default async function TeamDetailPage({ params }: PageProps) {
                   <span className="text-2xl font-bold text-white">{team.record.winPct}%</span>
                   <span className="text-white/50 ml-1">PCT</span>
                 </div>
-                {teamStanding?.streak && (
-                  <div className="px-4 py-2 rounded-lg bg-white/10">
-                    <span className={`text-2xl font-bold ${teamStanding.streak.toLowerCase().startsWith('w') ? 'text-green-400' : 'text-red-400'}`}>
-                      {teamStanding.streak}
-                    </span>
-                    <span className="text-white/50 ml-1">Streak</span>
-                  </div>
-                )}
-                {teamStanding?.lastTen && (
-                  <div className="px-4 py-2 rounded-lg bg-white/10">
-                    <span className="text-2xl font-bold text-blue-400">{teamStanding.lastTen}</span>
-                    <span className="text-white/50 ml-1">L10</span>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -153,15 +125,9 @@ export default async function TeamDetailPage({ params }: PageProps) {
               stats={team.stats}
             />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
             <StatCard label="PPG" value={team.stats.ppg.toFixed(1)} color="green-400" />
             <StatCard label="OPP PPG" value={team.stats.oppg.toFixed(1)} color="red-400" />
-            <StatCard
-              label="NET RTG"
-              value={`${netRating > 0 ? '+' : ''}${netRating.toFixed(1)}`}
-              color={netRating > 0 ? 'green-400' : 'red-400'}
-            />
-            <StatCard label="DEF RTG" value={team.stats.oppg.toFixed(1)} color="yellow-400" />
             <StatCard label="RPG" value={team.stats.rpg.toFixed(1)} />
             <StatCard label="APG" value={team.stats.apg.toFixed(1)} />
             <StatCard label="FG%" value={`${team.stats.fgPct.toFixed(1)}%`} />
@@ -169,32 +135,6 @@ export default async function TeamDetailPage({ params }: PageProps) {
             <StatCard label="FT%" value={`${team.stats.ftPct.toFixed(1)}%`} />
           </div>
         </div>
-
-        {/* Performance Chart */}
-        {team.schedule.recent.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-400" />
-              Recent Performance
-            </h2>
-            <div className="glass rounded-xl p-6">
-              <TeamPerformanceChart games={team.schedule.recent} />
-              {/* Win/Loss Record */}
-              <div className="flex justify-center gap-6 mt-4 pt-4 border-t border-white/10">
-                {team.schedule.recent.map((game, i) => (
-                  <div key={i} className="flex flex-col items-center gap-1">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                      game.result === 'W' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                    }`}>
-                      {game.result}
-                    </span>
-                    <span className="text-[10px] text-white/40">{game.opponent}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Injuries */}
         {team.injuries.length > 0 && (
@@ -253,7 +193,7 @@ export default async function TeamDetailPage({ params }: PageProps) {
             <Users className="w-5 h-5 text-orange-400" />
             Roster ({team.roster.length} players)
           </h2>
-
+          
           <div className="space-y-6">
             {/* Guards */}
             {guards.length > 0 && (
@@ -295,13 +235,13 @@ export default async function TeamDetailPage({ params }: PageProps) {
 
         {/* Source Footer */}
         <div className="mt-8 text-center">
-          <a
+          <a 
             href={`https://www.espn.com/nba/team/_/name/${team.abbreviation.toLowerCase()}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 text-white/60 hover:text-white hover:bg-white/10 text-sm transition-colors"
           >
-            View on ESPN <ExternalLink className="w-4 h-4" />
+            📊 View on ESPN <ExternalLink className="w-4 h-4" />
           </a>
         </div>
       </main>
@@ -311,10 +251,7 @@ export default async function TeamDetailPage({ params }: PageProps) {
 
 function PlayerCard({ player, teamColor }: { player: ESPNTeamDetail['roster'][0]; teamColor: string }) {
   return (
-    <Link
-      href={`/nba/players/${player.id}`}
-      className="glass rounded-xl p-4 hover:bg-white/5 transition-colors block"
-    >
+    <div className="glass rounded-xl p-4 hover:bg-white/5 transition-colors">
       <div className="flex items-center gap-3">
         {player.headshot ? (
           <Image
@@ -326,7 +263,7 @@ function PlayerCard({ player, teamColor }: { player: ESPNTeamDetail['roster'][0]
             unoptimized
           />
         ) : (
-          <div
+          <div 
             className="w-12 h-12 rounded-full flex items-center justify-center"
             style={{ backgroundColor: `#${teamColor}33` }}
           >
@@ -340,6 +277,10 @@ function PlayerCard({ player, teamColor }: { player: ESPNTeamDetail['roster'][0]
           </p>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
+
+
+
+

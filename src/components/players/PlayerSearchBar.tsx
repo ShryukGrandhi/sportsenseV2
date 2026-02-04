@@ -115,10 +115,10 @@ export function PlayerSearchBar() {
           onKeyDown={handleKeyDown}
           onFocus={() => results.length > 0 && setIsOpen(true)}
           placeholder="Search players..."
-          className="w-full px-4 py-3 pl-10 glass border border-white/10 rounded-xl text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-transparent transition-all"
+          className="w-full px-4 py-3 pl-10 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -132,7 +132,7 @@ export function PlayerSearchBar() {
         </svg>
         {isLoading && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
       </div>
@@ -141,7 +141,7 @@ export function PlayerSearchBar() {
       {isOpen && results.length > 0 && (
         <div
           ref={dropdownRef}
-          className="absolute z-50 w-full mt-2 glass-dark border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+          className="absolute z-50 w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden"
         >
           {results.map((player, index) => (
             <button
@@ -149,11 +149,11 @@ export function PlayerSearchBar() {
               onClick={() => handleSelect(player)}
               className={`w-full flex items-center gap-3 p-3 text-left transition-colors ${
                 index === selectedIndex
-                  ? 'bg-white/10 border-l-2 border-orange-500'
-                  : 'hover:bg-white/10'
+                  ? 'bg-blue-600'
+                  : 'hover:bg-gray-700'
               }`}
             >
-              <div className="relative w-10 h-10 rounded-full overflow-hidden bg-white/10 flex-shrink-0">
+              <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-600 flex-shrink-0">
                 {player.headshot ? (
                   <Image
                     src={player.headshot}
@@ -163,7 +163,7 @@ export function PlayerSearchBar() {
                     unoptimized
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-white/40">
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
                     <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
                     </svg>
@@ -174,10 +174,10 @@ export function PlayerSearchBar() {
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-white truncate">{player.name}</span>
                   {player.jersey && (
-                    <span className="text-xs text-white/40">#{player.jersey}</span>
+                    <span className="text-xs text-gray-400">#{player.jersey}</span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 text-sm text-white/40">
+                <div className="flex items-center gap-2 text-sm text-gray-400">
                   {player.position && <span>{player.position}</span>}
                   {player.team && (
                     <>
@@ -205,7 +205,7 @@ export function PlayerSearchBar() {
 
       {/* No results message */}
       {isOpen && query.length >= 2 && results.length === 0 && !isLoading && (
-        <div className="absolute z-50 w-full mt-2 glass-dark border border-white/10 rounded-xl shadow-2xl p-4 text-center text-white/50">
+        <div className="absolute z-50 w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg shadow-xl p-4 text-center text-gray-400">
           No players found for &quot;{query}&quot;
         </div>
       )}
