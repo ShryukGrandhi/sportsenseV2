@@ -2017,12 +2017,29 @@ Be concise. No essays.`;
         let responseText = '';
         if (response && typeof response === 'object') {
           const responseAny = response as any;
-          responseText = responseAny.text || responseAny.response?.text || responseAny.content || '';
+          
+          // Try multiple extraction paths
+          responseText = responseAny.text 
+            || responseAny.response?.text 
+            || responseAny.content
+            || responseAny.candidates?.[0]?.content?.parts?.[0]?.text
+            || responseAny.candidates?.[0]?.text
+            || '';
 
           if (!responseText) {
-            console.error('[AI Chat] No text found in response:', JSON.stringify(response, null, 2));
-            throw new Error(`Invalid response from ${modelName}: no text content found`);
+            console.error('[AI Chat] No text found in response. Full response:', JSON.stringify(response, null, 2));
+            console.error('[AI Chat] Response structure:', {
+              hasText: !!responseAny.text,
+              hasResponse: !!responseAny.response,
+              hasContent: !!responseAny.content,
+              hasCandidates: !!responseAny.candidates,
+              candidatesLength: responseAny.candidates?.length || 0,
+            });
+            throw new Error(`Invalid response from ${modelName}: no text content found. Response structure: ${JSON.stringify(Object.keys(responseAny))}`);
           }
+        } else {
+          console.error('[AI Chat] Unexpected response type:', typeof response);
+          throw new Error(`Invalid response type from ${modelName}: expected object, got ${typeof response}`);
         }
 
         // Create a response-like object with text property
