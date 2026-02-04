@@ -175,6 +175,10 @@ export async function POST(request: Request) {
     // Handle conversation-update events - these contain the actual user messages
     // VAPI sends conversation-update with the latest message in the conversation
     if (eventType === 'conversation-update') {
+      console.log('[Vapi Webhook] Processing conversation-update event');
+      console.log('[Vapi Webhook] body.message:', JSON.stringify(body.message, null, 2));
+      console.log('[Vapi Webhook] body.messages:', JSON.stringify(body.messages, null, 2));
+      
       // Check body.message for the latest message
       if (body.message) {
         const msg = body.message;
@@ -209,6 +213,14 @@ export async function POST(request: Request) {
           console.log('[Vapi Webhook] Found user message in conversation-update.message.messages');
         }
       }
+      
+      // Check if message has a transcript field
+      if (!userMessage && body.message?.transcript) {
+        userMessage = typeof body.message.transcript === 'string' ? body.message.transcript.trim() : null;
+        if (userMessage) {
+          console.log('[Vapi Webhook] Found user message in conversation-update.message.transcript');
+        }
+      }
     }
 
     // Only process if we have a user message
@@ -228,6 +240,8 @@ export async function POST(request: Request) {
     const chatbotUrl = `${BASE_URL}/api/ai/chat`;
     console.log('[Vapi Webhook] Calling chatbot at:', chatbotUrl);
     console.log('[Vapi Webhook] Request payload:', { message: userMessage, length: 'short' });
+    
+    const startTime = Date.now();
 
     const chatResponse = await fetch(chatbotUrl, {
       method: 'POST',
@@ -243,6 +257,9 @@ export async function POST(request: Request) {
         requestVisuals: false,
       }),
     });
+    
+    const fetchTime = Date.now() - startTime;
+    console.log('[Vapi Webhook] Chatbot API call took:', fetchTime, 'ms');
 
     if (!chatResponse.ok) {
       const errorText = await chatResponse.text();
