@@ -363,7 +363,7 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 
 type UserIntent =
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team' | 'date' | 'recentGames'; team?: string; date?: string; dateDisplay?: string; isRecap?: boolean }
-  | { type: 'specificGame'; gameId: string }
+  | { type: 'specificGame'; gameId: string } // New: for queries about specific game IDs
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
   | { type: 'player'; name: string; season?: number; seasonDisplay?: string }
   | { type: 'comparison'; player1: string; player2: string; gameContext?: { team1?: string; team2?: string; date?: string; dateDisplay?: string } }
@@ -655,14 +655,10 @@ function detectUserIntent(message: string): UserIntent {
     }
   }
 
-  // Check for leaders/stats and top N rankings
+  // Check for leaders/stats
   if (lowerMsg.includes('leader') || lowerMsg.includes('best') || lowerMsg.includes('top scorer') ||
-    lowerMsg.includes('mvp') || lowerMsg.includes('who leads') ||
-    /top\s+\d+\s+(?:player|scorer|passer|rebounder|shooter)/i.test(lowerMsg) ||
-    /best\s+\d+\s+(?:player|scorer)/i.test(lowerMsg)) {
-    const topNMatch = lowerMsg.match(/(?:top|best)\s+(\d+)/i);
-    const count = topNMatch ? parseInt(topNMatch[1]) : undefined;
-    return { type: 'leaders', count };
+    lowerMsg.includes('mvp') || lowerMsg.includes('who leads')) {
+    return { type: 'leaders' };
   }
 
   return { type: 'general' };
@@ -1441,17 +1437,7 @@ RULES:
 - Lead with the score/result, then key performers
 - Skip fluff words, headers, and repetition
 
-CAPABILITIES:
-- Player stats and head-to-head comparisons (season averages, game stats)
-- Team-to-team comparisons (records, offensive/defensive stats, key players)
-- Smart game recaps with injury context and high-impact plays
-- Top N player rankings by any statistical category
-- Live scores, standings, schedules
-
-FORMAT: Score first → top performers → one key insight. Done.
-When comparing teams, highlight record, PPG, defensive efficiency, and standout players.
-When asked for "top N players", provide a clean numbered ranking with name, team, and stat.
-When recapping games, mention notable injuries, momentum shifts, and clutch plays.`;
+FORMAT: Score first → top performers → one key insight. Done.`;
 
 // Small personality deltas - only the style differences, not repeated core instructions
 const PERSONALITY_DELTAS: Record<string, string> = {
@@ -1759,31 +1745,6 @@ export async function POST(request: Request) {
           liveContext = buildAIContext(liveData, boxscores);
           
           dateContext = `\n\nRECAP CONTEXT: User asked for a recap of ${intent.team}'s game. Found their most recent completed game. Provide a detailed recap with key moments, top performers, and analysis.\n`;
-
-          // Fetch injury reports for both teams involved in the recap
-          try {
-            const homeAbbr = mostRecentGame.homeTeam.abbreviation;
-            const awayAbbr = mostRecentGame.awayTeam.abbreviation;
-            const homeTeamKey = Object.keys(NBA_TEAMS).find(k => NBA_TEAMS[k].abbreviation === homeAbbr);
-            const awayTeamKey = Object.keys(NBA_TEAMS).find(k => NBA_TEAMS[k].abbreviation === awayAbbr);
-
-            const injuryFetches = [];
-            if (homeTeamKey) injuryFetches.push(fetchTeamDetail(NBA_TEAMS[homeTeamKey].id).then(t => ({ team: homeAbbr, injuries: t?.injuries || [] })));
-            if (awayTeamKey) injuryFetches.push(fetchTeamDetail(NBA_TEAMS[awayTeamKey].id).then(t => ({ team: awayAbbr, injuries: t?.injuries || [] })));
-
-            const injuryResults = await Promise.all(injuryFetches);
-            const injuryContext = injuryResults
-              .filter(r => r.injuries.length > 0)
-              .map(r => `${r.team} injuries: ${r.injuries.map((inj: any) => `${inj.player.displayName} (${inj.status} - ${inj.description || 'no details'})`).join(', ')}`)
-              .join('\n');
-
-            if (injuryContext) {
-              dateContext += `\nINJURY REPORT:\n${injuryContext}\n`;
-              dateContext += `When recapping, mention how injuries may have impacted the game. Highlight if a key player was missing or playing through injury.\n`;
-            }
-          } catch (injuryError) {
-            console.error('[AI Chat] Failed to fetch injury data for recap:', injuryError);
-          }
         } else if (allGames.length > 0) {
           // Found scheduled/live games but no completed ones
           console.log(`[AI Chat] Found ${allGames.length} games for ${intent.team}, but none completed yet`);
@@ -2017,29 +1978,12 @@ Be concise. No essays.`;
         let responseText = '';
         if (response && typeof response === 'object') {
           const responseAny = response as any;
-          
-          // Try multiple extraction paths
-          responseText = responseAny.text 
-            || responseAny.response?.text 
-            || responseAny.content
-            || responseAny.candidates?.[0]?.content?.parts?.[0]?.text
-            || responseAny.candidates?.[0]?.text
-            || '';
+          responseText = responseAny.text || responseAny.response?.text || responseAny.content || '';
 
           if (!responseText) {
-            console.error('[AI Chat] No text found in response. Full response:', JSON.stringify(response, null, 2));
-            console.error('[AI Chat] Response structure:', {
-              hasText: !!responseAny.text,
-              hasResponse: !!responseAny.response,
-              hasContent: !!responseAny.content,
-              hasCandidates: !!responseAny.candidates,
-              candidatesLength: responseAny.candidates?.length || 0,
-            });
-            throw new Error(`Invalid response from ${modelName}: no text content found. Response structure: ${JSON.stringify(Object.keys(responseAny))}`);
+            console.error('[AI Chat] No text found in response:', JSON.stringify(response, null, 2));
+            throw new Error(`Invalid response from ${modelName}: no text content found`);
           }
-        } else {
-          console.error('[AI Chat] Unexpected response type:', typeof response);
-          throw new Error(`Invalid response type from ${modelName}: expected object, got ${typeof response}`);
         }
 
         // Create a response-like object with text property
