@@ -172,6 +172,28 @@ export async function POST(request: Request) {
       console.log('[Vapi Webhook] Found message in body.query');
     }
 
+    // Handle conversation-update events - these contain the actual user messages
+    if (eventType === 'conversation-update' && body.message) {
+      const msg = body.message;
+      
+      // Check if this is a user message in the conversation
+      if (msg.role === 'user' && msg.content) {
+        userMessage = typeof msg.content === 'string' ? msg.content.trim() : null;
+        console.log('[Vapi Webhook] Found user message in conversation-update');
+      }
+      
+      // Also check messages array in conversation-update
+      if (!userMessage && Array.isArray(msg.messages)) {
+        const userMsgs = msg.messages.filter((m: any) => 
+          m.role === 'user' && m.content && typeof m.content === 'string'
+        );
+        if (userMsgs.length > 0) {
+          userMessage = userMsgs[userMsgs.length - 1].content.trim();
+          console.log('[Vapi Webhook] Found user message in conversation-update.messages array');
+        }
+      }
+    }
+
     // Only process if we have a user message
     // VAPI sends many status/event updates that don't contain user messages
     if (!userMessage) {
@@ -181,7 +203,8 @@ export async function POST(request: Request) {
       return NextResponse.json({});
     }
 
-    console.log('[Vapi Webhook] User message:', userMessage.substring(0, 100));
+    console.log('[Vapi Webhook] User message extracted:', userMessage);
+    console.log('[Vapi Webhook] User message length:', userMessage.length);
 
     // Call the internal chatbot API with live data
     // Use absolute URL for internal fetch in production
