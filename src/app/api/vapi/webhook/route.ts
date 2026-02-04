@@ -91,6 +91,16 @@ function formatForVoice(text: string): string {
   return result.trim();
 }
 
+// GET handler for testing/verification
+export async function GET() {
+  return NextResponse.json({
+    status: 'ok',
+    message: 'VAPI webhook endpoint is active. This endpoint accepts POST requests from VAPI.',
+    endpoint: '/api/vapi/webhook',
+    method: 'POST',
+  });
+}
+
 export async function POST(request: Request) {
   console.log('[Vapi Webhook] Received request');
 
