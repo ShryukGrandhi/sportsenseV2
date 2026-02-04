@@ -106,25 +106,78 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    
+    // Log the full request for debugging
     console.log('[Vapi Webhook] Full request body:', JSON.stringify(body, null, 2));
-    console.log('[Vapi Webhook] Event type:', body.message?.type || body.type || 'unknown');
+    console.log('[Vapi Webhook] Request keys:', Object.keys(body));
+    
+    // VAPI sends different event types - we only care about user messages
+    const eventType = body.type || body.message?.type || 'unknown';
+    console.log('[Vapi Webhook] Event type:', eventType);
 
     // Extract the user's message - VAPI sends it in different formats
-    let userMessage = extractMessage(body);
+    let userMessage = null;
     
-    // Also check for VAPI's function call format
-    if (!userMessage && body.functionCall) {
-      userMessage = body.functionCall.parameters?.query || body.functionCall.parameters?.message || null;
+    // Format 1: Direct transcript in body
+    if (body.transcript && typeof body.transcript === 'string') {
+      userMessage = body.transcript.trim();
+      console.log('[Vapi Webhook] Found message in body.transcript');
     }
     
-    // Check for user message in transcript
-    if (!userMessage && body.transcript) {
-      userMessage = body.transcript;
+    // Format 2: Message object with transcript
+    if (!userMessage && body.message) {
+      if (typeof body.message === 'string') {
+        userMessage = body.message.trim();
+        console.log('[Vapi Webhook] Found message in body.message (string)');
+      } else if (body.message.transcript) {
+        userMessage = body.message.transcript.trim();
+        console.log('[Vapi Webhook] Found message in body.message.transcript');
+      } else if (body.message.content) {
+        userMessage = body.message.content.trim();
+        console.log('[Vapi Webhook] Found message in body.message.content');
+      }
+    }
+    
+    // Format 3: Function call parameters
+    if (!userMessage && body.functionCall) {
+      userMessage = body.functionCall.parameters?.query || 
+                   body.functionCall.parameters?.message || 
+                   body.functionCall.parameters?.text ||
+                   null;
+      if (userMessage) {
+        console.log('[Vapi Webhook] Found message in functionCall.parameters');
+      }
+    }
+    
+    // Format 4: Messages array (conversation history)
+    if (!userMessage && body.messages && Array.isArray(body.messages)) {
+      const userMessages = body.messages.filter((m: any) => 
+        m.role === 'user' && m.content && typeof m.content === 'string'
+      );
+      if (userMessages.length > 0) {
+        userMessage = userMessages[userMessages.length - 1].content.trim();
+        console.log('[Vapi Webhook] Found message in messages array');
+      }
+    }
+    
+    // Format 5: Direct text field
+    if (!userMessage && body.text && typeof body.text === 'string') {
+      userMessage = body.text.trim();
+      console.log('[Vapi Webhook] Found message in body.text');
+    }
+    
+    // Format 6: Query field
+    if (!userMessage && body.query && typeof body.query === 'string') {
+      userMessage = body.query.trim();
+      console.log('[Vapi Webhook] Found message in body.query');
     }
 
+    // Only process if we have a user message
+    // VAPI sends many status/event updates that don't contain user messages
     if (!userMessage) {
-      console.log('[Vapi Webhook] No user message found in request, skipping');
-      // Return empty response for non-message events (status updates, etc.)
+      console.log('[Vapi Webhook] No user message found - this is likely a status update or event');
+      console.log('[Vapi Webhook] Event type was:', eventType);
+      // Return empty response for non-message events
       return NextResponse.json({});
     }
 
