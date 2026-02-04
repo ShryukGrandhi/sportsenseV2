@@ -83,9 +83,11 @@ export async function POST(request: Request) {
             },
           ],
         },
+        // Use PlayHT as a more reliable default (no external API key needed)
+        // If you prefer 11labs, configure it in VAPI dashboard and use: { provider: '11labs', voiceId: 'your-voice-id' }
         voice: {
-          provider: '11labs',
-          voiceId: 'josh',
+          provider: 'playht',
+          voiceId: 's3://voice-cloning-zero-shot/d9ff78ba-d016-47b6-b288-5d3553ca4a4f/original', // Default PlayHT voice
         },
         firstMessage: "Hey! I'm Playmaker AI, your sports assistant. What would you like to know about today's NBA action?",
         endCallMessage: 'Thanks for calling Playmaker AI. Enjoy the games!',
