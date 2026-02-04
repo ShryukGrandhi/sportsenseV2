@@ -85,7 +85,7 @@ export async function POST(request: Request) {
         },
         voice: {
           provider: 'vapi',
-          voiceId: 'elliot',
+          voiceId: 'Elliot',
         },
         firstMessage: "Hey! I'm Playmaker AI, your sports assistant. What would you like to know about today's NBA action?",
         endCallMessage: 'Thanks for calling Playmaker AI. Enjoy the games!',
