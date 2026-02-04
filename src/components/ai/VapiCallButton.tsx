@@ -25,12 +25,21 @@ export function VapiCallButton() {
         body: JSON.stringify({}),
       });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('[VapiCall] Failed:', errorData.error, errorData.details);
+        alert(`Failed to start call: ${errorData.error}\n${errorData.details || ''}`);
+        setCallState('idle');
+        return;
+      }
+
       const data = await response.json();
 
       if (data.success) {
         setCallState('active');
       } else {
         console.error('[VapiCall] Failed:', data.error);
+        alert(`Failed to start call: ${data.error}`);
         setCallState('idle');
       }
     } catch (error) {

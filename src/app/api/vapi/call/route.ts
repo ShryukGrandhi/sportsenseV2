@@ -45,9 +45,24 @@ export async function POST(request: Request) {
     const targetPhone = body.phoneNumber || VAPI_TARGET_PHONE;
 
     if (!targetPhone) {
+      console.error('[Vapi Call] Missing phone number. VAPI_TARGET_PHONE:', VAPI_TARGET_PHONE ? 'Set' : 'Not set');
       return NextResponse.json(
-        { error: 'No target phone number provided' },
+        { 
+          error: 'No target phone number provided',
+          details: 'VAPI_TARGET_PHONE environment variable is not set. Please configure it in Vercel environment variables.'
+        },
         { status: 400 }
+      );
+    }
+
+    if (!VAPI_PHONE_NUMBER_ID) {
+      console.error('[Vapi Call] Missing phone number ID');
+      return NextResponse.json(
+        { 
+          error: 'VAPI phone number ID not configured',
+          details: 'VAPI_PHONE_NUMBER_ID environment variable is not set.'
+        },
+        { status: 500 }
       );
     }
 
