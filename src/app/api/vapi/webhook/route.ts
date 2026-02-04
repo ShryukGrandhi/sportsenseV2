@@ -173,23 +173,40 @@ export async function POST(request: Request) {
     }
 
     // Handle conversation-update events - these contain the actual user messages
-    if (eventType === 'conversation-update' && body.message) {
-      const msg = body.message;
-      
-      // Check if this is a user message in the conversation
-      if (msg.role === 'user' && msg.content) {
-        userMessage = typeof msg.content === 'string' ? msg.content.trim() : null;
-        console.log('[Vapi Webhook] Found user message in conversation-update');
+    // VAPI sends conversation-update with the latest message in the conversation
+    if (eventType === 'conversation-update') {
+      // Check body.message for the latest message
+      if (body.message) {
+        const msg = body.message;
+        
+        // Check if this is a user message
+        if (msg.role === 'user' && msg.content) {
+          userMessage = typeof msg.content === 'string' ? msg.content.trim() : null;
+          if (userMessage) {
+            console.log('[Vapi Webhook] Found user message in conversation-update.message');
+          }
+        }
       }
       
-      // Also check messages array in conversation-update
-      if (!userMessage && Array.isArray(msg.messages)) {
-        const userMsgs = msg.messages.filter((m: any) => 
+      // Also check body.messages array for the latest user message
+      if (!userMessage && body.messages && Array.isArray(body.messages)) {
+        const userMsgs = body.messages.filter((m: any) => 
           m.role === 'user' && m.content && typeof m.content === 'string'
         );
         if (userMsgs.length > 0) {
           userMessage = userMsgs[userMsgs.length - 1].content.trim();
           console.log('[Vapi Webhook] Found user message in conversation-update.messages array');
+        }
+      }
+      
+      // Check message.messages nested array
+      if (!userMessage && body.message?.messages && Array.isArray(body.message.messages)) {
+        const userMsgs = body.message.messages.filter((m: any) => 
+          m.role === 'user' && m.content && typeof m.content === 'string'
+        );
+        if (userMsgs.length > 0) {
+          userMessage = userMsgs[userMsgs.length - 1].content.trim();
+          console.log('[Vapi Webhook] Found user message in conversation-update.message.messages');
         }
       }
     }
@@ -259,9 +276,17 @@ export async function POST(request: Request) {
     console.log('[Vapi Webhook] Full voice response:', voiceResponse);
 
     // Return response in VAPI's expected format
-    return NextResponse.json({
+    // VAPI expects either { response: string } or { messages: [...] }
+    const vapiResponse = {
       response: voiceResponse,
+    };
+    
+    console.log('[Vapi Webhook] Returning response to VAPI:', {
+      responseLength: voiceResponse.length,
+      preview: voiceResponse.substring(0, 100),
     });
+    
+    return NextResponse.json(vapiResponse);
   } catch (error) {
     console.error('[Vapi Webhook] Error:', error);
     return NextResponse.json({
