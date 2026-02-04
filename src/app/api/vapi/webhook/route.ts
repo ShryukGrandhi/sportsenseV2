@@ -1,101 +1,264 @@
 // VAPI Webhook Endpoint - Handles function calls from VAPI voice assistant
 //
-// Architecture: VAPI's serverUrl receives two types of messages:
-// 1. Server messages (conversation-update, speech-update, status-update) - informational, we ignore these
-// 2. Function calls (function-call) - when GPT-4o calls our get_nba_info tool
-//
-// For function calls, we proxy the query to our chatbot API which has full
-// live NBA data access (ESPN scores, player stats, standings, etc.)
+// Architecture: When GPT-4o calls get_nba_info, VAPI sends the function call here.
+// We fetch live data DIRECTLY from ESPN APIs (no Gemini dependency).
+// This eliminates rate-limit issues and ensures fast, reliable data delivery.
 
 import { NextResponse } from 'next/server';
+import {
+  fetchLiveScores,
+  fetchStandings,
+  buildAIContext,
+} from '@/services/nba/live-data';
+import {
+  searchPlayers,
+  fetchPlayerStats,
+  fetchTeamDetail,
+  fetchPlayerGameLogs,
+} from '@/services/nba/espn-api';
 
-const BASE_URL = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+// ============================================================
+// TEAM NAME LOOKUP - Maps common names/cities to ESPN team IDs
+// ============================================================
+
+const TEAM_LOOKUP: Record<string, string> = {
+  // Team names
+  hawks: '1', celtics: '2', nets: '17', hornets: '30', bulls: '4',
+  cavaliers: '5', cavs: '5', mavericks: '6', mavs: '6', nuggets: '7',
+  pistons: '8', warriors: '9', dubs: '9', rockets: '10', pacers: '11',
+  clippers: '12', lakers: '13', grizzlies: '29', grizz: '29', heat: '14',
+  bucks: '15', timberwolves: '16', wolves: '16', pelicans: '3', pels: '3',
+  knicks: '18', thunder: '25', magic: '19', sixers: '20', '76ers': '20',
+  suns: '21', blazers: '22', 'trail blazers': '22', kings: '23',
+  spurs: '24', raptors: '28', jazz: '26', wizards: '27',
+  // City names
+  atlanta: '1', boston: '2', brooklyn: '17', charlotte: '30', chicago: '4',
+  cleveland: '5', dallas: '6', denver: '7', detroit: '8',
+  'golden state': '9', houston: '10', indiana: '11',
+  'la clippers': '12', 'la lakers': '13',
+  'los angeles clippers': '12', 'los angeles lakers': '13',
+  memphis: '29', miami: '14', milwaukee: '15', minnesota: '16',
+  'new orleans': '3', 'new york': '18', 'oklahoma city': '25', okc: '25',
+  orlando: '19', philadelphia: '20', philly: '20', phoenix: '21',
+  portland: '22', sacramento: '23', 'san antonio': '24',
+  toronto: '28', utah: '26', washington: '27',
+};
+
+// ============================================================
+// QUERY CLASSIFICATION & DATA FETCHING
+// ============================================================
 
 /**
- * Formats chatbot response for natural voice output.
- * Strips markdown, converts formatting to speech-friendly text.
+ * Finds a team ID from the query text.
+ * Returns the ESPN team ID or null.
  */
-function formatForVoice(text: string): string {
-  let result = text;
+function findTeamInQuery(query: string): { teamId: string; teamName: string } | null {
+  const q = query.toLowerCase();
 
-  // Remove markdown bold/italic
-  result = result.replace(/\*\*(.+?)\*\*/g, '$1');
-  result = result.replace(/\*(.+?)\*/g, '$1');
-  result = result.replace(/_(.+?)_/g, '$1');
-
-  // Remove markdown headers
-  result = result.replace(/^#{1,6}\s+/gm, '');
-
-  // Convert bullet points to natural speech
-  result = result.replace(/^[\s]*[-•]\s+/gm, '');
-
-  // Remove markdown links, keep text
-  result = result.replace(/\[(.+?)\]\(.+?\)/g, '$1');
-
-  // Convert multiple newlines to sentence breaks
-  result = result.replace(/\n{2,}/g, '. ');
-  result = result.replace(/\n/g, '. ');
-
-  // Clean up multiple periods/spaces
-  result = result.replace(/\.\s*\.\s*/g, '. ');
-  result = result.replace(/\s{2,}/g, ' ');
-
-  // Remove any JSON/code blocks
-  result = result.replace(/```json[\s\S]*?```/g, '');
-  result = result.replace(/```[\s\S]*?```/g, '');
-  result = result.replace(/\{"correctedStats"[\s\S]*?\}/g, '');
-
-  return result.trim();
+  // Check longest names first to avoid partial matches
+  const sortedNames = Object.keys(TEAM_LOOKUP).sort((a, b) => b.length - a.length);
+  for (const name of sortedNames) {
+    if (q.includes(name)) {
+      return { teamId: TEAM_LOOKUP[name], teamName: name };
+    }
+  }
+  return null;
 }
 
 /**
- * Calls the SportsSense chatbot API with a query and returns the response text.
+ * Extracts a player name from a query by stripping question/stat words.
  */
-async function fetchFromChatbot(query: string): Promise<string> {
-  const chatbotUrl = `${BASE_URL}/api/ai/chat`;
-  console.log('[Vapi Webhook] Calling chatbot:', chatbotUrl, 'query:', query.substring(0, 80));
+function extractPlayerName(query: string): string | null {
+  const q = query.toLowerCase().trim();
 
-  const startTime = Date.now();
+  // Common patterns: "LeBron James stats", "stats for LeBron", "how is Curry doing"
+  const patterns = [
+    /(?:stats?|averages?|numbers?|statline|stat line)\s+(?:for|of|on)\s+(.+?)(?:\s+this|\s+last|\?|$)/i,
+    /(.+?)(?:'s|'s)?\s+(?:stats?|averages?|numbers?|statline|season)/i,
+    /(?:how (?:is|has|was)|how's)\s+(.+?)(?:\s+(?:doing|playing|performed|been))/i,
+    /(?:tell me about|info on|look up|search for|find)\s+(.+?)(?:\s+stats?|\?|$)/i,
+    /(?:what (?:are|is))\s+(.+?)(?:'s|'s)?\s+(?:stats?|averages?|numbers?)/i,
+    /(?:player)\s+(.+)/i,
+  ];
 
-  const response = await fetch(chatbotUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: query,
-      personality: 'default',
-      length: 'short',
-      type: 'general',
-      requestVisuals: false,
-    }),
-  });
-
-  const elapsed = Date.now() - startTime;
-  console.log('[Vapi Webhook] Chatbot responded in', elapsed, 'ms, status:', response.status);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Vapi Webhook] Chatbot error:', response.status, errorText);
-    return 'I had trouble fetching the latest NBA data. Please try asking again.';
+  for (const pattern of patterns) {
+    const match = q.match(pattern);
+    if (match && match[1]) {
+      const name = match[1]
+        .replace(/(?:nba|basketball|player|the)\s*/gi, '')
+        .trim();
+      if (name.length > 1) return name;
+    }
   }
 
-  const data = await response.json();
-  const rawResponse = data.response || '';
-
-  if (!rawResponse) {
-    return 'I could not find that information right now. Try asking about today\'s NBA games or a specific player.';
-  }
-
-  return formatForVoice(rawResponse);
+  return null;
 }
 
-// GET handler for testing/verification
+/**
+ * Fetches NBA data directly from ESPN based on the query.
+ * No Gemini dependency - pure ESPN API calls.
+ */
+async function fetchNBADataDirect(query: string): Promise<string> {
+  const q = query.toLowerCase().trim();
+  console.log('[Webhook] Processing query:', q);
+
+  try {
+    // === STANDINGS ===
+    if (
+      q.includes('standing') ||
+      q.includes('rankings') ||
+      q.includes('playoff') ||
+      q.includes('seeds') ||
+      q.includes('conference rank') ||
+      q.includes('who is leading')
+    ) {
+      console.log('[Webhook] Fetching standings');
+      const standings = await fetchStandings();
+      const lines: string[] = ['NBA STANDINGS:'];
+
+      lines.push('', 'EASTERN CONFERENCE:');
+      for (const t of standings.east) {
+        let line = `${t.name}: ${t.wins}-${t.losses} (${t.winPct})`;
+        if (t.streak) line += `, Streak: ${t.streak}`;
+        if (t.lastTen) line += `, Last 10: ${t.lastTen}`;
+        lines.push(line);
+      }
+
+      lines.push('', 'WESTERN CONFERENCE:');
+      for (const t of standings.west) {
+        let line = `${t.name}: ${t.wins}-${t.losses} (${t.winPct})`;
+        if (t.streak) line += `, Streak: ${t.streak}`;
+        if (t.lastTen) line += `, Last 10: ${t.lastTen}`;
+        lines.push(line);
+      }
+
+      return lines.join('\n');
+    }
+
+    // === PLAYER STATS ===
+    const playerName = extractPlayerName(q);
+    if (playerName) {
+      console.log('[Webhook] Searching player:', playerName);
+      const players = await searchPlayers(playerName, 3);
+
+      if (players.length > 0) {
+        const player = players[0];
+        const stats = await fetchPlayerStats(player.id);
+        const lines: string[] = [];
+
+        lines.push(`${player.displayName}`);
+        if (player.team?.name) lines[0] += ` (${player.team.name})`;
+        if (player.position) lines[0] += ` - ${player.position}`;
+
+        if (stats) {
+          lines.push(`Season Stats:`);
+          lines.push(`Points: ${stats.pointsPerGame} per game`);
+          lines.push(`Rebounds: ${stats.reboundsPerGame} per game`);
+          lines.push(`Assists: ${stats.assistsPerGame} per game`);
+          lines.push(`Steals: ${stats.stealsPerGame} per game`);
+          lines.push(`Blocks: ${stats.blocksPerGame} per game`);
+          lines.push(`Field Goal: ${stats.fgPct}%`);
+          lines.push(`Three Point: ${stats.fg3Pct}%`);
+          lines.push(`Free Throw: ${stats.ftPct}%`);
+          lines.push(`Minutes: ${stats.minutesPerGame} per game`);
+          lines.push(`Games Played: ${stats.gamesPlayed}`);
+        } else {
+          lines.push('Stats not available right now.');
+        }
+
+        // Also check for recent game logs
+        try {
+          const gameLogs = await fetchPlayerGameLogs(player.id, 3);
+          if (gameLogs.length > 0) {
+            lines.push('', 'Recent Games:');
+            for (const g of gameLogs) {
+              lines.push(
+                `${g.date} vs ${g.opponent}: ${g.points} PTS, ${g.rebounds} REB, ${g.assists} AST`
+              );
+            }
+          }
+        } catch {
+          // Game logs are optional, skip if they fail
+        }
+
+        return lines.join('\n');
+      } else {
+        return `Could not find an NBA player matching "${playerName}". Try using their full name.`;
+      }
+    }
+
+    // === TEAM INFO / RECORD ===
+    const teamMatch = findTeamInQuery(q);
+    if (
+      teamMatch &&
+      (q.includes('record') ||
+        q.includes('roster') ||
+        q.includes('team') ||
+        q.includes('injuries') ||
+        q.includes('injured') ||
+        q.includes('how are') ||
+        q.includes("how's") ||
+        q.includes('doing'))
+    ) {
+      console.log('[Webhook] Fetching team info:', teamMatch.teamName);
+      const team = await fetchTeamDetail(teamMatch.teamId);
+
+      if (team) {
+        const lines: string[] = [];
+        lines.push(`${team.displayName}`);
+        lines.push(`Record: ${team.record.wins}-${team.record.losses} (${team.record.winPct})`);
+        lines.push(`Conference: ${team.standing.conference}, Rank: #${team.standing.rank}`);
+        lines.push(
+          `Stats: ${team.stats.ppg} PPG, ${team.stats.oppg} OPP PPG, ${team.stats.rpg} RPG, ${team.stats.apg} APG`
+        );
+        lines.push(`Shooting: ${team.stats.fgPct}% FG, ${team.stats.fg3Pct}% 3PT, ${team.stats.ftPct}% FT`);
+
+        if (team.injuries.length > 0) {
+          lines.push('', 'Injuries:');
+          for (const inj of team.injuries.slice(0, 5)) {
+            lines.push(`${inj.player.displayName}: ${inj.status} - ${inj.description}`);
+          }
+        }
+
+        if (team.schedule.recent.length > 0) {
+          lines.push('', 'Recent Games:');
+          for (const g of team.schedule.recent.slice(0, 5)) {
+            lines.push(`${g.result} vs ${g.opponent} (${g.score})`);
+          }
+        }
+
+        return lines.join('\n');
+      }
+    }
+
+    // === SCORES / GAMES (default) ===
+    // This covers: "today's scores", "who's playing", "games tonight",
+    // "what happened last night", and any unclassified NBA query
+    console.log('[Webhook] Fetching live scores (default)');
+    const liveData = await fetchLiveScores();
+
+    if (liveData.games.length === 0) {
+      return 'No NBA games scheduled for today. Check back later or ask about standings or player stats.';
+    }
+
+    return buildAIContext(liveData);
+  } catch (error) {
+    console.error('[Webhook] Data fetch error:', error);
+    return 'I had trouble getting the latest NBA data. Try asking again in a moment.';
+  }
+}
+
+// ============================================================
+// ROUTE HANDLERS
+// ============================================================
+
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    message: 'VAPI webhook endpoint is active. Handles function calls for get_nba_info.',
+    message: 'VAPI webhook active. Fetches live NBA data directly from ESPN.',
     endpoint: '/api/vapi/webhook',
     method: 'POST',
-    architecture: 'function-calling',
+    architecture: 'direct-espn-fetch',
   });
 }
 
@@ -104,50 +267,38 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-
-    // Determine event type - VAPI uses body.message.type
     const messageType = body.message?.type || body.type || 'unknown';
     console.log('[Vapi Webhook] Event:', messageType);
 
     // ============================================================
-    // HANDLE FUNCTION CALLS - This is the core integration point
-    // When GPT-4o calls get_nba_info, VAPI sends it here
+    // HANDLE FUNCTION CALLS
     // ============================================================
 
     if (messageType === 'function-call') {
       const functionCall = body.message?.functionCall || body.functionCall;
 
       if (!functionCall) {
-        console.warn('[Vapi Webhook] function-call event but no functionCall data');
-        console.log('[Vapi Webhook] Body keys:', Object.keys(body));
-        console.log('[Vapi Webhook] Message keys:', body.message ? Object.keys(body.message) : 'no message');
+        console.warn('[Vapi Webhook] function-call event with no data');
         return NextResponse.json({ result: 'No function call data received.' });
       }
 
       const funcName = functionCall.name;
       const params = functionCall.parameters || {};
-      console.log('[Vapi Webhook] Function call:', funcName, 'params:', JSON.stringify(params));
+      console.log('[Vapi Webhook] Function:', funcName, 'params:', JSON.stringify(params));
 
       if (funcName === 'get_nba_info') {
         const query = params.query || 'today NBA scores';
-        console.log('[Vapi Webhook] Fetching NBA data for query:', query);
-
-        const result = await fetchFromChatbot(query);
+        const result = await fetchNBADataDirect(query);
         const elapsed = Date.now() - startTime;
-        console.log('[Vapi Webhook] Total function-call handling:', elapsed, 'ms');
-        console.log('[Vapi Webhook] Result preview:', result.substring(0, 150));
-
-        // Return result in VAPI's expected format for function call responses
+        console.log('[Vapi Webhook] Completed in', elapsed, 'ms, result:', result.substring(0, 200));
         return NextResponse.json({ result });
       }
 
-      // Unknown function
-      console.warn('[Vapi Webhook] Unknown function:', funcName);
       return NextResponse.json({ result: `Unknown function: ${funcName}` });
     }
 
     // ============================================================
-    // HANDLE TOOL CALLS (newer VAPI format, array of tool calls)
+    // HANDLE TOOL CALLS (newer VAPI format)
     // ============================================================
 
     if (messageType === 'tool-calls') {
@@ -159,8 +310,6 @@ export async function POST(request: Request) {
         [];
 
       if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-        console.warn('[Vapi Webhook] tool-calls event but no tool calls found');
-        console.log('[Vapi Webhook] Body:', JSON.stringify(body, null, 2));
         return NextResponse.json({ results: [] });
       }
 
@@ -172,7 +321,6 @@ export async function POST(request: Request) {
         const funcName = tc.function?.name || tc.name || '';
         let params: Record<string, string> = {};
 
-        // Arguments can be a JSON string or an object
         if (typeof tc.function?.arguments === 'string') {
           try {
             params = JSON.parse(tc.function.arguments);
@@ -185,11 +333,9 @@ export async function POST(request: Request) {
           params = tc.parameters;
         }
 
-        console.log('[Vapi Webhook] Tool call:', funcName, 'id:', toolCallId, 'params:', JSON.stringify(params));
-
         if (funcName === 'get_nba_info') {
           const query = params.query || 'today NBA scores';
-          const result = await fetchFromChatbot(query);
+          const result = await fetchNBADataDirect(query);
           results.push({ toolCallId, result });
         } else {
           results.push({ toolCallId, result: `Unknown function: ${funcName}` });
@@ -197,44 +343,23 @@ export async function POST(request: Request) {
       }
 
       const elapsed = Date.now() - startTime;
-      console.log('[Vapi Webhook] Total tool-calls handling:', elapsed, 'ms');
-
+      console.log('[Vapi Webhook] Tool calls completed in', elapsed, 'ms');
       return NextResponse.json({ results });
     }
 
     // ============================================================
-    // ALL OTHER EVENTS - status updates, conversation updates, etc.
-    // These are informational; we acknowledge and move on.
+    // ALL OTHER EVENTS - acknowledge and move on
     // ============================================================
 
-    // Log non-function events at debug level only
     if (messageType === 'status-update') {
-      const status = body.message?.status || body.status || 'unknown';
-      console.log('[Vapi Webhook] Status update:', status);
-    } else if (messageType === 'conversation-update') {
-      // These are conversation history updates - not actionable
-      console.log('[Vapi Webhook] Conversation update (ignored - responses come via function calls)');
-    } else if (messageType === 'speech-update') {
-      // Speech start/stop events
-      console.log('[Vapi Webhook] Speech update (ignored)');
-    } else if (messageType === 'hang') {
-      console.log('[Vapi Webhook] Call hang event');
-    } else if (messageType === 'end-of-call-report') {
-      console.log('[Vapi Webhook] End of call report received');
-    } else {
-      // Log unknown event types with full body for debugging
-      console.log('[Vapi Webhook] Unhandled event type:', messageType);
-      console.log('[Vapi Webhook] Body keys:', Object.keys(body));
-      if (body.message) {
-        console.log('[Vapi Webhook] Message keys:', Object.keys(body.message));
-      }
+      console.log('[Vapi Webhook] Status:', body.message?.status || 'unknown');
+    } else if (messageType !== 'conversation-update' && messageType !== 'speech-update') {
+      console.log('[Vapi Webhook] Event:', messageType);
     }
 
     return NextResponse.json({});
   } catch (error) {
     console.error('[Vapi Webhook] Error:', error);
-    return NextResponse.json({
-      result: 'Internal error processing request.',
-    });
+    return NextResponse.json({ result: 'Internal error processing request.' });
   }
 }

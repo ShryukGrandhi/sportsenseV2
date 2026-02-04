@@ -2276,43 +2276,22 @@ Be concise. No essays.`;
   } catch (error) {
     const errorMsg = (error as Error).message;
     const errorStack = (error as Error).stack;
-    const errorName = (error as Error).name;
-    
-    console.error('[AI Chat Error] ============================================');
-    console.error('[AI Chat Error] Error Name:', errorName);
-    console.error('[AI Chat Error] Error Message:', errorMsg);
+    console.error('[AI Chat Error] Full error:', errorMsg);
     console.error('[AI Chat Error] Stack trace:', errorStack);
-    console.error('[AI Chat Error] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    console.error('[AI Chat Error] ============================================');
-    
-    logger.error('AI chat error', { 
-      name: errorName,
-      message: errorMsg, 
-      stack: errorStack,
-      error: error 
-    });
+    console.error('[AI Chat Error] Error object:', error);
+    logger.error('AI chat error', { error: errorMsg, stack: errorStack });
 
-    // Provide more specific error messages based on error type
+    // Provide more helpful error message
     let userMessage = "I hit a snag! 🏀 Check ESPN.com for the latest: https://www.espn.com/nba/";
-    
-    if (errorMsg.includes('API key') || errorMsg.includes('GEMINI') || errorMsg.includes('API_KEY')) {
+    if (errorMsg.includes('API key') || errorMsg.includes('GEMINI')) {
       userMessage = "I'm having trouble connecting to the AI service. Please check your API key configuration.";
-    } else if (errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('ECONNREFUSED')) {
+    } else if (errorMsg.includes('fetch') || errorMsg.includes('network')) {
       userMessage = "I'm having trouble fetching live data. Please try again in a moment.";
-    } else if (errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
-      userMessage = "I'm being rate limited right now. Please wait a moment and try again.";
-    } else if (errorMsg.includes('404') || errorMsg.includes('not found')) {
-      userMessage = "The AI model couldn't be found. This might be a configuration issue.";
-    } else if (errorMsg.includes('timeout') || errorMsg.includes('TIMEOUT')) {
-      userMessage = "The request took too long. Please try again with a simpler question.";
-    } else if (errorMsg.includes('All AI models failed')) {
-      userMessage = "I'm having trouble with the AI service right now. Please try again in a moment.";
     }
 
     return NextResponse.json({
       response: userMessage,
       error: errorMsg,
-      errorName: errorName,
       sourceUrl: 'https://www.espn.com/nba/',
     }, { status: 200 });
   }
