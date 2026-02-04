@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { GoogleGenAI } from "@google/genai";
 import { logger } from '@/lib/logger';
 import { fetchAllLiveData, buildAIContext, fetchStandings, fetchAllBoxscores, fetchScoresByDate, findGameByTeams, fetchGameBoxscore, LiveGameData } from '@/services/nba/live-data';
-import { fetchPlayerStats, fetchGameDetail, fetchPlayerCareerStats, fetchPlayerStatsForSeason } from '@/services/nba/espn-api';
+import { fetchPlayerStats, fetchGameDetail, fetchPlayerCareerStats, fetchPlayerStatsForSeason, fetchTeamDetail } from '@/services/nba/espn-api';
 import { extractDateFromMessage, parseNaturalDate } from '@/lib/date-parser';
 
 // ============================================
@@ -180,6 +180,29 @@ interface PlayerComparisonVisual {
   }>;
 }
 
+interface TeamComparisonVisual {
+  team1: {
+    name: string;
+    abbreviation: string;
+    logo: string;
+    record: { wins: number; losses: number; winPct: string };
+    stats: { ppg: number; oppg: number; rpg: number; apg: number; fgPct: number; fg3Pct: number; ftPct: number };
+  };
+  team2: {
+    name: string;
+    abbreviation: string;
+    logo: string;
+    record: { wins: number; losses: number; winPct: string };
+    stats: { ppg: number; oppg: number; rpg: number; apg: number; fgPct: number; fg3Pct: number; ftPct: number };
+  };
+  categories: Array<{
+    name: string;
+    team1Value: string | number;
+    team2Value: string | number;
+    winner: 'team1' | 'team2' | 'tie';
+  }>;
+}
+
 // Game recap player type for top player comparison
 interface GameRecapTopPlayer {
   name: string;
@@ -229,7 +252,8 @@ type AIVisualResponse =
   | { type: 'standings'; data: VisualStandingsData[] }
   | { type: 'statsTable'; data: VisualStatsTable }
   | { type: 'leaders'; data: VisualLeadersData }
-  | { type: 'comparison'; data: PlayerComparisonVisual };
+  | { type: 'comparison'; data: PlayerComparisonVisual }
+  | { type: 'teamComparison'; data: TeamComparisonVisual };
 
 // ============================================
 // PLAYER NAME MAPPINGS
@@ -339,12 +363,13 @@ const NBA_TEAMS: Record<string, { id: string; name: string; abbreviation: string
 
 type UserIntent =
   | { type: 'games'; filter?: 'live' | 'today' | 'upcoming' | 'team' | 'date' | 'recentGames'; team?: string; date?: string; dateDisplay?: string; isRecap?: boolean }
-  | { type: 'specificGame'; gameId: string } // New: for queries about specific game IDs
+  | { type: 'specificGame'; gameId: string }
   | { type: 'standings'; conference?: 'east' | 'west' | 'both' }
   | { type: 'player'; name: string; season?: number; seasonDisplay?: string }
   | { type: 'comparison'; player1: string; player2: string; gameContext?: { team1?: string; team2?: string; date?: string; dateDisplay?: string } }
+  | { type: 'teamComparison'; team1: string; team2: string }
   | { type: 'team'; name: string }
-  | { type: 'leaders'; category?: string }
+  | { type: 'leaders'; category?: string; count?: number }
   | { type: 'general' };
 
 function detectUserIntent(message: string): UserIntent {
@@ -430,6 +455,27 @@ function detectUserIntent(message: string): UserIntent {
 
       console.log(`[Intent] Parsed comparison: "${player1}" vs "${player2}"`);
       return { type: 'comparison', player1, player2, gameContext };
+    }
+  }
+
+  // Check for team-to-team comparison (must come AFTER player comparison to avoid false positives)
+  const teamComparisonPatterns = [
+    /compare\s+(?:the\s+)?(\w+)\s+(?:vs?\.?|versus|and|to|with)\s+(?:the\s+)?(\w+)(?:\s+teams?)?/i,
+    /(?:the\s+)?(\w+)\s+vs?\.?\s+(?:the\s+)?(\w+)\s+(?:matchup|comparison|head\s*to\s*head)/i,
+    /how\s+(?:do|would)\s+(?:the\s+)?(\w+)\s+(?:compare|match\s*up|stack\s*up)\s+(?:to|against|with|vs?\.?)\s+(?:the\s+)?(\w+)/i,
+  ];
+
+  for (const pattern of teamComparisonPatterns) {
+    const match = lowerMsg.match(pattern);
+    if (match) {
+      const t1Name = match[1].toLowerCase();
+      const t2Name = match[2].toLowerCase();
+      const team1 = NBA_TEAMS[t1Name];
+      const team2 = NBA_TEAMS[t2Name];
+      if (team1 && team2 && team1.abbreviation !== team2.abbreviation) {
+        console.log(`[Intent] Detected team comparison: ${team1.name} vs ${team2.name}`);
+        return { type: 'teamComparison', team1: t1Name, team2: t2Name };
+      }
     }
   }
 
@@ -609,10 +655,14 @@ function detectUserIntent(message: string): UserIntent {
     }
   }
 
-  // Check for leaders/stats
+  // Check for leaders/stats and top N rankings
   if (lowerMsg.includes('leader') || lowerMsg.includes('best') || lowerMsg.includes('top scorer') ||
-    lowerMsg.includes('mvp') || lowerMsg.includes('who leads')) {
-    return { type: 'leaders' };
+    lowerMsg.includes('mvp') || lowerMsg.includes('who leads') ||
+    /top\s+\d+\s+(?:player|scorer|passer|rebounder|shooter)/i.test(lowerMsg) ||
+    /best\s+\d+\s+(?:player|scorer)/i.test(lowerMsg)) {
+    const topNMatch = lowerMsg.match(/(?:top|best)\s+(\d+)/i);
+    const count = topNMatch ? parseInt(topNMatch[1]) : undefined;
+    return { type: 'leaders', count };
   }
 
   return { type: 'general' };
@@ -1279,6 +1329,56 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
         };
       }
 
+      case 'teamComparison': {
+        const t1Info = NBA_TEAMS[intent.team1];
+        const t2Info = NBA_TEAMS[intent.team2];
+        if (!t1Info || !t2Info) return null;
+
+        const [team1Detail, team2Detail] = await Promise.all([
+          fetchTeamDetail(t1Info.id),
+          fetchTeamDetail(t2Info.id),
+        ]);
+
+        if (!team1Detail || !team2Detail) return null;
+
+        const compare = (v1: number, v2: number, lowerIsBetter = false): 'team1' | 'team2' | 'tie' => {
+          if (v1 === v2) return 'tie';
+          if (lowerIsBetter) return v1 < v2 ? 'team1' : 'team2';
+          return v1 > v2 ? 'team1' : 'team2';
+        };
+
+        const categories: TeamComparisonVisual['categories'] = [
+          { name: 'Record', team1Value: `${team1Detail.record.wins}-${team1Detail.record.losses}`, team2Value: `${team2Detail.record.wins}-${team2Detail.record.losses}`, winner: compare(team1Detail.record.wins, team2Detail.record.wins) },
+          { name: 'PPG', team1Value: team1Detail.stats.ppg.toFixed(1), team2Value: team2Detail.stats.ppg.toFixed(1), winner: compare(team1Detail.stats.ppg, team2Detail.stats.ppg) },
+          { name: 'OPP PPG', team1Value: team1Detail.stats.oppg.toFixed(1), team2Value: team2Detail.stats.oppg.toFixed(1), winner: compare(team1Detail.stats.oppg, team2Detail.stats.oppg, true) },
+          { name: 'RPG', team1Value: team1Detail.stats.rpg.toFixed(1), team2Value: team2Detail.stats.rpg.toFixed(1), winner: compare(team1Detail.stats.rpg, team2Detail.stats.rpg) },
+          { name: 'APG', team1Value: team1Detail.stats.apg.toFixed(1), team2Value: team2Detail.stats.apg.toFixed(1), winner: compare(team1Detail.stats.apg, team2Detail.stats.apg) },
+          { name: 'FG%', team1Value: `${team1Detail.stats.fgPct.toFixed(1)}%`, team2Value: `${team2Detail.stats.fgPct.toFixed(1)}%`, winner: compare(team1Detail.stats.fgPct, team2Detail.stats.fgPct) },
+          { name: '3P%', team1Value: `${team1Detail.stats.fg3Pct.toFixed(1)}%`, team2Value: `${team2Detail.stats.fg3Pct.toFixed(1)}%`, winner: compare(team1Detail.stats.fg3Pct, team2Detail.stats.fg3Pct) },
+        ];
+
+        return {
+          type: 'teamComparison',
+          data: {
+            team1: {
+              name: team1Detail.displayName,
+              abbreviation: team1Detail.abbreviation,
+              logo: team1Detail.logo,
+              record: team1Detail.record,
+              stats: team1Detail.stats,
+            },
+            team2: {
+              name: team2Detail.displayName,
+              abbreviation: team2Detail.abbreviation,
+              logo: team2Detail.logo,
+              record: team2Detail.record,
+              stats: team2Detail.stats,
+            },
+            categories,
+          },
+        };
+      }
+
       default:
         return null;
     }
@@ -1341,7 +1441,17 @@ RULES:
 - Lead with the score/result, then key performers
 - Skip fluff words, headers, and repetition
 
-FORMAT: Score first → top performers → one key insight. Done.`;
+CAPABILITIES:
+- Player stats and head-to-head comparisons (season averages, game stats)
+- Team-to-team comparisons (records, offensive/defensive stats, key players)
+- Smart game recaps with injury context and high-impact plays
+- Top N player rankings by any statistical category
+- Live scores, standings, schedules
+
+FORMAT: Score first → top performers → one key insight. Done.
+When comparing teams, highlight record, PPG, defensive efficiency, and standout players.
+When asked for "top N players", provide a clean numbered ranking with name, team, and stat.
+When recapping games, mention notable injuries, momentum shifts, and clutch plays.`;
 
 // Small personality deltas - only the style differences, not repeated core instructions
 const PERSONALITY_DELTAS: Record<string, string> = {
@@ -1649,6 +1759,31 @@ export async function POST(request: Request) {
           liveContext = buildAIContext(liveData, boxscores);
           
           dateContext = `\n\nRECAP CONTEXT: User asked for a recap of ${intent.team}'s game. Found their most recent completed game. Provide a detailed recap with key moments, top performers, and analysis.\n`;
+
+          // Fetch injury reports for both teams involved in the recap
+          try {
+            const homeAbbr = mostRecentGame.homeTeam.abbreviation;
+            const awayAbbr = mostRecentGame.awayTeam.abbreviation;
+            const homeTeamKey = Object.keys(NBA_TEAMS).find(k => NBA_TEAMS[k].abbreviation === homeAbbr);
+            const awayTeamKey = Object.keys(NBA_TEAMS).find(k => NBA_TEAMS[k].abbreviation === awayAbbr);
+
+            const injuryFetches = [];
+            if (homeTeamKey) injuryFetches.push(fetchTeamDetail(NBA_TEAMS[homeTeamKey].id).then(t => ({ team: homeAbbr, injuries: t?.injuries || [] })));
+            if (awayTeamKey) injuryFetches.push(fetchTeamDetail(NBA_TEAMS[awayTeamKey].id).then(t => ({ team: awayAbbr, injuries: t?.injuries || [] })));
+
+            const injuryResults = await Promise.all(injuryFetches);
+            const injuryContext = injuryResults
+              .filter(r => r.injuries.length > 0)
+              .map(r => `${r.team} injuries: ${r.injuries.map((inj: any) => `${inj.player.displayName} (${inj.status} - ${inj.description || 'no details'})`).join(', ')}`)
+              .join('\n');
+
+            if (injuryContext) {
+              dateContext += `\nINJURY REPORT:\n${injuryContext}\n`;
+              dateContext += `When recapping, mention how injuries may have impacted the game. Highlight if a key player was missing or playing through injury.\n`;
+            }
+          } catch (injuryError) {
+            console.error('[AI Chat] Failed to fetch injury data for recap:', injuryError);
+          }
         } else if (allGames.length > 0) {
           // Found scheduled/live games but no completed ones
           console.log(`[AI Chat] Found ${allGames.length} games for ${intent.team}, but none completed yet`);
@@ -1774,6 +1909,15 @@ export async function POST(request: Request) {
           visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a comparison card between ${player1.name} and ${player2.name}.\n`;
           visualContext += `${player1.name} wins ${p1Wins} categories, ${player2.name} wins ${p2Wins} categories.\n`;
           visualContext += 'Provide your VERDICT on who is better overall and WHY. Be specific about strengths/weaknesses. The user can see the raw numbers.';
+          break;
+        case 'teamComparison':
+          const { team1, team2, categories: teamCats } = visualResponse.data;
+          const t1Wins = teamCats.filter(c => c.winner === 'team1').length;
+          const t2Wins = teamCats.filter(c => c.winner === 'team2').length;
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user will see a team comparison card between ${team1.name} (${team1.record.wins}-${team1.record.losses}) and ${team2.name} (${team2.record.wins}-${team2.record.losses}).\n`;
+          visualContext += `Categories compared: ${teamCats.map(c => `${c.name}: ${c.team1Value} vs ${c.team2Value} (${c.winner === 'team1' ? team1.name : c.winner === 'team2' ? team2.name : 'Tie'} wins)`).join(', ')}\n`;
+          visualContext += `${team1.name} leads ${t1Wins} categories, ${team2.name} leads ${t2Wins} categories.\n`;
+          visualContext += 'Provide your analysis of how these teams match up. Discuss strengths, weaknesses, key advantages, and your prediction for a head-to-head matchup. The user can see the stat comparison.';
           break;
       }
     }

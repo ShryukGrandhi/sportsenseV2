@@ -12,6 +12,7 @@ import {
   Zap, Star, AlertTriangle, CheckCircle, Calendar
 } from 'lucide-react';
 import { TopPlayerComparison } from './TopPlayerComparison';
+import { TeamComparisonCard } from './TeamComparisonVisual';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -133,7 +134,8 @@ export type AIVisualResponse =
   | { type: 'standings'; data: VisualStandingsData[] }
   | { type: 'statsTable'; data: VisualStatsTable }
   | { type: 'leaders'; data: VisualLeadersData }
-  | { type: 'comparison'; data: PlayerComparisonVisual };
+  | { type: 'comparison'; data: PlayerComparisonVisual }
+  | { type: 'teamComparison'; data: TeamComparisonVisualData };
 
 // NEW: Game recap with top player comparison (per mock requirements)
 export interface GameRecapTopPlayer {
@@ -183,6 +185,29 @@ export interface PlayerComparisonVisual {
     player1Value: number | string;
     player2Value: number | string;
     winner: 'player1' | 'player2' | 'tie';
+  }>;
+}
+
+export interface TeamComparisonVisualData {
+  team1: {
+    name: string;
+    abbreviation: string;
+    logo: string;
+    record: { wins: number; losses: number; winPct: string };
+    stats: { ppg: number; oppg: number; rpg: number; apg: number; fgPct: number; fg3Pct: number; ftPct: number };
+  };
+  team2: {
+    name: string;
+    abbreviation: string;
+    logo: string;
+    record: { wins: number; losses: number; winPct: string };
+    stats: { ppg: number; oppg: number; rpg: number; apg: number; fgPct: number; fg3Pct: number; ftPct: number };
+  };
+  categories: Array<{
+    name: string;
+    team1Value: string | number;
+    team2Value: string | number;
+    winner: 'team1' | 'team2' | 'tie';
   }>;
 }
 
@@ -1010,6 +1035,8 @@ export function AIVisualRenderer({ visual }: { visual: AIVisualResponse }) {
       return <LeadersTable leaders={visual.data} />;
     case 'comparison':
       return <ComparisonCard comparison={visual.data} />;
+    case 'teamComparison':
+      return <TeamComparisonCard comparison={visual.data} />;
     default:
       return null;
   }

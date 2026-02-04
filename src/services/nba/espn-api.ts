@@ -934,7 +934,7 @@ export async function fetchTeamDetail(teamId: string): Promise<ESPNTeamDetail | 
       }
     }
 
-    return {
+    const result: ESPNTeamDetail = {
       id: team.id,
       name: team.name,
       displayName: team.displayName,
@@ -960,6 +960,49 @@ export async function fetchTeamDetail(teamId: string): Promise<ESPNTeamDetail | 
         recent: [],
       },
     };
+
+    // Populate recent schedule from ESPN schedule endpoint
+    try {
+      const scheduleUrl = `${ESPN_BASE_URL}/teams/${teamId}/schedule`;
+      const scheduleData = await fetchJSON<any>(scheduleUrl);
+
+      if (scheduleData?.events) {
+        const completedEvents = scheduleData.events
+          .filter((e: any) => {
+            const status = e.competitions?.[0]?.status?.type?.name?.toLowerCase();
+            return status?.includes('final');
+          })
+          .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, 10);
+
+        for (const event of completedEvents) {
+          const competition = event.competitions?.[0];
+          if (!competition) continue;
+
+          const homeComp = competition.competitors?.find((c: any) => c.homeAway === 'home');
+          const awayComp = competition.competitors?.find((c: any) => c.homeAway === 'away');
+          if (!homeComp || !awayComp) continue;
+
+          const homeScore = parseInt(homeComp.score?.displayValue || homeComp.score || '0');
+          const awayScore = parseInt(awayComp.score?.displayValue || awayComp.score || '0');
+          const isHome = homeComp.team?.id === teamId || homeComp.team?.abbreviation === result.abbreviation;
+          const teamScore = isHome ? homeScore : awayScore;
+          const oppScore = isHome ? awayScore : homeScore;
+          const won = teamScore > oppScore;
+          const oppTeam = isHome ? awayComp.team : homeComp.team;
+
+          result.schedule.recent.push({
+            opponent: oppTeam?.abbreviation || '???',
+            result: won ? 'W' : 'L',
+            score: `${teamScore}-${oppScore}`,
+          });
+        }
+      }
+    } catch (scheduleError) {
+      logger.warn('Failed to fetch team schedule', { teamId, error: (scheduleError as Error).message });
+    }
+
+    return result;
 
   } catch (error) {
     logger.error('Error parsing team detail', { teamId, error: (error as Error).message });
@@ -1431,18 +1474,29 @@ export async function fetchPlayerStats(
   
   logger.info(`[fetchPlayerStats] Stats array length: ${stats.length}`);
   
-  // Convert stats array to map
+  // Convert stats array to map (normalize all keys to lowercase for consistent lookup)
   const statMap: Record<string, number> = {};
   for (const stat of stats) {
     if (stat.name && stat.value !== undefined) {
-      statMap[stat.name] = parseFloat(stat.value);
-    } else if (stat.abbreviation && stat.value !== undefined) {
-      statMap[stat.abbreviation] = parseFloat(stat.value);
-    } else if (stat.displayName && stat.displayValue !== undefined) {
-      statMap[stat.displayName] = parseFloat(stat.displayValue);
+      statMap[stat.name.toLowerCase()] = parseFloat(stat.value);
+    }
+    if (stat.abbreviation && stat.value !== undefined) {
+      statMap[stat.abbreviation.toLowerCase()] = parseFloat(stat.value);
+    }
+    if (stat.displayName && stat.displayValue !== undefined) {
+      statMap[stat.displayName.toLowerCase()] = parseFloat(stat.displayValue);
     }
   }
-  
+
+  // Name-based lookup helper: search for any matching alias
+  const findStat = (aliases: string[]): number => {
+    for (const alias of aliases) {
+      const val = statMap[alias.toLowerCase()];
+      if (val !== undefined && val !== null) return val;
+    }
+    return 0;
+  };
+
   logger.info(`[fetchPlayerStats] Fallback stat map keys: ${Object.keys(statMap).join(', ')}`);
 
   return {
@@ -1451,20 +1505,19 @@ export async function fetchPlayerStats(
     position: athlete.position?.abbreviation || athlete.position?.name || '',
     jersey: athlete.jersey || '',
     headshot: athlete.headshot?.href || `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerId}.png&w=350&h=254`,
-    gamesPlayed: statMap['gamesPlayed'] || statMap['GP'] || 0,
-    gamesStarted: statMap['gamesStarted'] || statMap['GS'] || 0,
-    minutesPerGame: statMap['avgMinutes'] || statMap['MIN'] || 0,
-    pointsPerGame: statMap['avgPoints'] || statMap['PTS'] || 0,
-    reboundsPerGame: statMap['avgRebounds'] || statMap['REB'] || 0,
-    assistsPerGame: statMap['avgAssists'] || statMap['AST'] || 0,
-    stealsPerGame: statMap['avgSteals'] || statMap['STL'] || 0,
-    blocksPerGame: statMap['avgBlocks'] || statMap['BLK'] || 0,
-    turnoversPerGame: statMap['avgTurnovers'] || statMap['TO'] || 0,
-    // ESPN returns percentages as whole numbers (51.26 = 51.26%), NOT decimals
-    fgPct: statMap['fieldGoalPct'] || 0,
-    fg3Pct: statMap['threePointFieldGoalPct'] || 0,
-    ftPct: statMap['freeThrowPct'] || 0,
-    plusMinus: statMap['plusMinus'] || 0,
+    gamesPlayed: findStat(['gamesplayed', 'gp', 'games played', 'games']),
+    gamesStarted: findStat(['gamesstarted', 'gs', 'games started']),
+    minutesPerGame: findStat(['avgminutes', 'min', 'minutes', 'minutes per game', 'minutespergame']),
+    pointsPerGame: findStat(['avgpoints', 'pts', 'points', 'points per game', 'pointspergame', 'avg points']),
+    reboundsPerGame: findStat(['avgrebounds', 'reb', 'rebounds', 'rebounds per game', 'reboundspergame', 'avg rebounds']),
+    assistsPerGame: findStat(['avgassists', 'ast', 'assists', 'assists per game', 'assistspergame', 'avg assists']),
+    stealsPerGame: findStat(['avgsteals', 'stl', 'steals', 'steals per game', 'stealspergame', 'avg steals']),
+    blocksPerGame: findStat(['avgblocks', 'blk', 'blocks', 'blocks per game', 'blockspergame', 'avg blocks']),
+    turnoversPerGame: findStat(['avgturnovers', 'to', 'turnovers', 'turnovers per game', 'turnoverspergame', 'avg turnovers']),
+    fgPct: findStat(['fieldgoalpct', 'fgpct', 'fg%', 'field goal pct', 'field goal %']),
+    fg3Pct: findStat(['threepointfieldgoalpct', 'fg3pct', '3p%', '3pt pct', 'three point field goal pct']),
+    ftPct: findStat(['freethrowpct', 'ftpct', 'ft%', 'free throw pct', 'free throw %']),
+    plusMinus: findStat(['plusminus', '+/-']),
   };
 }
 
