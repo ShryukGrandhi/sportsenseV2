@@ -36,6 +36,14 @@ interface NotificationContextType {
   clearAll: () => void;
   soundEnabled: boolean;
   toggleSound: () => void;
+  // SMS integration
+  smsEnabled: boolean;
+  toggleSms: () => void;
+  smsPhoneNumber: string;
+  setSmsPhoneNumber: (phone: string) => void;
+  // Team filtering
+  followedTeams: string[];
+  toggleTeamFollow: (abbreviation: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
@@ -228,11 +236,67 @@ function truncateForPreview(text: string, maxLength: number = 80): string {
   return text.slice(0, maxLength).trim() + '...';
 }
 
+// Send SMS via the email-to-SMS gateway
+async function sendSmsNotification(message: string, phoneNumber?: string) {
+  try {
+    await fetch('/api/vapi/sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, phoneNumber: phoneNumber || undefined }),
+    });
+    console.log('[SMS] Notification sent:', message.substring(0, 50));
+  } catch (error) {
+    console.error('[SMS] Failed to send notification:', error);
+  }
+}
+
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Notification[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  
+
+  // SMS state (persisted to localStorage)
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [smsPhoneNumber, setSmsPhoneNumberState] = useState('');
+
+  // Team filtering state (persisted to localStorage)
+  const [followedTeams, setFollowedTeams] = useState<string[]>([]);
+
+  // Load persisted SMS/team settings from localStorage
+  useEffect(() => {
+    try {
+      const savedSms = localStorage.getItem('sportsense_sms_enabled');
+      const savedPhone = localStorage.getItem('sportsense_sms_phone');
+      const savedTeams = localStorage.getItem('sportsense_followed_teams');
+      if (savedSms !== null) setSmsEnabled(savedSms === 'true');
+      if (savedPhone) setSmsPhoneNumberState(savedPhone);
+      if (savedTeams) setFollowedTeams(JSON.parse(savedTeams));
+    } catch {}
+  }, []);
+
+  const toggleSms = useCallback(() => {
+    setSmsEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('sportsense_sms_enabled', String(next));
+      return next;
+    });
+  }, []);
+
+  const setSmsPhoneNumber = useCallback((phone: string) => {
+    setSmsPhoneNumberState(phone);
+    localStorage.setItem('sportsense_sms_phone', phone);
+  }, []);
+
+  const toggleTeamFollow = useCallback((abbreviation: string) => {
+    setFollowedTeams(prev => {
+      const next = prev.includes(abbreviation)
+        ? prev.filter(t => t !== abbreviation)
+        : [...prev, abbreviation];
+      localStorage.setItem('sportsense_followed_teams', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   // AI Insight Modal state
   const [insightModal, setInsightModal] = useState<{
     isOpen: boolean;
@@ -282,20 +346,32 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [soundEnabled]);
 
   const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
+    // Team filtering: skip if we have followed teams and this game doesn't involve any
+    if (followedTeams.length > 0 && notification.homeTeam && notification.awayTeam) {
+      const isFollowed = followedTeams.includes(notification.homeTeam) || followedTeams.includes(notification.awayTeam);
+      if (!isFollowed) return;
+    }
+
     const newNotification: Notification = {
       ...notification,
       id: crypto.randomUUID(),
       timestamp: new Date(),
       read: false,
     };
-    
+
     setNotifications(prev => [newNotification, ...prev].slice(0, 50));
     setToasts(prev => [newNotification, ...prev].slice(0, 3));
-    
+
     if (notification.sound !== false) {
       playSound(notification.type);
     }
-  }, [playSound]);
+
+    // Send SMS for score and alert notifications
+    if (smsEnabled && (notification.type === 'score' || notification.type === 'alert')) {
+      const smsText = `${notification.title}: ${notification.message}`;
+      sendSmsNotification(smsText, smsPhoneNumber || undefined);
+    }
+  }, [playSound, smsEnabled, smsPhoneNumber, followedTeams]);
 
   const markAsRead = useCallback((id: string) => {
     setNotifications(prev =>
@@ -530,6 +606,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         clearAll,
         soundEnabled,
         toggleSound,
+        smsEnabled,
+        toggleSms,
+        smsPhoneNumber,
+        setSmsPhoneNumber,
+        followedTeams,
+        toggleTeamFollow,
       }}
     >
       {children}

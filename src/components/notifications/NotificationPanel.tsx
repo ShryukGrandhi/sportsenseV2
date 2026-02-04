@@ -4,20 +4,22 @@
 // Integrates with NotificationProvider context
 
 import { useState } from 'react';
-import { 
-  Bell, 
-  X, 
-  Check, 
-  CheckCheck, 
-  Trash2, 
-  Trophy, 
-  Zap, 
-  AlertTriangle, 
+import {
+  Bell,
+  X,
+  Check,
+  CheckCheck,
+  Trash2,
+  Trophy,
+  Zap,
+  AlertTriangle,
   Info,
   Volume2,
   VolumeX,
   ChevronDown,
   Filter,
+  MessageSquare,
+  Phone,
 } from 'lucide-react';
 import { useNotifications, type Notification } from './NotificationProvider';
 import { cn } from '@/lib/utils';
@@ -44,6 +46,13 @@ const COLOR_MAP = {
 
 type FilterType = 'all' | 'unread' | 'score' | 'highlight' | 'alert' | 'info';
 
+const NBA_TEAMS = [
+  'ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN',
+  'DET', 'GSW', 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA',
+  'MIL', 'MIN', 'NOP', 'NYK', 'OKC', 'ORL', 'PHI', 'PHX',
+  'POR', 'SAC', 'SAS', 'TOR', 'UTA', 'WAS',
+];
+
 export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
   const {
     notifications,
@@ -54,10 +63,17 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
     clearAll,
     soundEnabled,
     toggleSound,
+    smsEnabled,
+    toggleSms,
+    smsPhoneNumber,
+    setSmsPhoneNumber,
+    followedTeams,
+    toggleTeamFollow,
   } = useNotifications();
 
   const [filter, setFilter] = useState<FilterType>('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [showTeamFilter, setShowTeamFilter] = useState(false);
 
   // Filter notifications
   const filteredNotifications = notifications.filter(n => {
@@ -99,13 +115,27 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
                 onClick={toggleSound}
                 className={cn(
                   "p-2 rounded-lg transition-colors",
-                  soundEnabled 
-                    ? "text-green-400 hover:bg-green-500/20" 
+                  soundEnabled
+                    ? "text-green-400 hover:bg-green-500/20"
                     : "text-white/40 hover:bg-white/10"
                 )}
                 title={soundEnabled ? 'Mute notifications' : 'Unmute notifications'}
               >
                 {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              </button>
+
+              {/* SMS Toggle */}
+              <button
+                onClick={toggleSms}
+                className={cn(
+                  "p-2 rounded-lg transition-colors",
+                  smsEnabled
+                    ? "text-orange-400 hover:bg-orange-500/20"
+                    : "text-white/40 hover:bg-white/10"
+                )}
+                title={smsEnabled ? 'Disable SMS alerts' : 'Enable SMS alerts'}
+              >
+                <MessageSquare className="w-4 h-4" />
               </button>
 
               {/* Close */}
@@ -187,6 +217,72 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
               )}
             </div>
           </div>
+        </div>
+
+        {/* SMS Phone Number Input (shown when SMS enabled) */}
+        {smsEnabled && (
+          <div className="px-4 py-3 border-b border-white/10 bg-orange-500/5">
+            <div className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-orange-400 flex-shrink-0" />
+              <input
+                type="tel"
+                value={smsPhoneNumber}
+                onChange={(e) => setSmsPhoneNumber(e.target.value)}
+                placeholder="+18582108648"
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
+              />
+            </div>
+            <p className="text-[10px] text-white/30 mt-1.5 ml-6">
+              SMS alerts for score updates & close games
+            </p>
+          </div>
+        )}
+
+        {/* Team Filter */}
+        <div className="px-4 py-3 border-b border-white/10">
+          <button
+            onClick={() => setShowTeamFilter(!showTeamFilter)}
+            className="flex items-center gap-2 text-sm text-white/60 hover:text-white/80 transition-colors"
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span>Filter by Team</span>
+            {followedTeams.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
+                {followedTeams.length}
+              </span>
+            )}
+            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform ml-auto", showTeamFilter && "rotate-180")} />
+          </button>
+
+          {showTeamFilter && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {NBA_TEAMS.map(team => {
+                const isActive = followedTeams.includes(team);
+                return (
+                  <button
+                    key={team}
+                    onClick={() => toggleTeamFollow(team)}
+                    className={cn(
+                      "px-2 py-1 rounded-md text-[11px] font-medium transition-colors border",
+                      isActive
+                        ? "bg-orange-500/20 text-orange-400 border-orange-500/30"
+                        : "bg-white/5 text-white/40 border-transparent hover:bg-white/10"
+                    )}
+                  >
+                    {team}
+                  </button>
+                );
+              })}
+              {followedTeams.length > 0 && (
+                <button
+                  onClick={() => followedTeams.forEach(t => toggleTeamFollow(t))}
+                  className="px-2 py-1 rounded-md text-[11px] text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Notifications List */}
