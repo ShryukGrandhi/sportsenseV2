@@ -106,10 +106,21 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    console.log('[Vapi Webhook] Event type:', body.message?.type || 'unknown');
+    console.log('[Vapi Webhook] Full request body:', JSON.stringify(body, null, 2));
+    console.log('[Vapi Webhook] Event type:', body.message?.type || body.type || 'unknown');
 
-    // Extract the user's message
-    const userMessage = extractMessage(body);
+    // Extract the user's message - VAPI sends it in different formats
+    let userMessage = extractMessage(body);
+    
+    // Also check for VAPI's function call format
+    if (!userMessage && body.functionCall) {
+      userMessage = body.functionCall.parameters?.query || body.functionCall.parameters?.message || null;
+    }
+    
+    // Check for user message in transcript
+    if (!userMessage && body.transcript) {
+      userMessage = body.transcript;
+    }
 
     if (!userMessage) {
       console.log('[Vapi Webhook] No user message found in request, skipping');
@@ -120,16 +131,21 @@ export async function POST(request: Request) {
     console.log('[Vapi Webhook] User message:', userMessage.substring(0, 100));
 
     // Call the internal chatbot API with live data
+    // Use absolute URL for internal fetch in production
     const chatbotUrl = `${BASE_URL}/api/ai/chat`;
     console.log('[Vapi Webhook] Calling chatbot at:', chatbotUrl);
+    console.log('[Vapi Webhook] Request payload:', { message: userMessage, length: 'short' });
 
     const chatResponse = await fetch(chatbotUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        // Pass through any auth headers if needed
+      },
       body: JSON.stringify({
         message: userMessage,
         personality: 'default',
-        length: 'short',
+        length: 'short', // Keep voice responses concise
         type: 'general',
         requestVisuals: false,
       }),
@@ -144,6 +160,13 @@ export async function POST(request: Request) {
     }
 
     const chatData = await chatResponse.json();
+    console.log('[Vapi Webhook] Chatbot response received:', {
+      hasResponse: !!chatData.response,
+      responseLength: chatData.response?.length || 0,
+      hasError: !!chatData.error,
+      dataSource: chatData.dataSource,
+    });
+    
     const rawResponse = chatData.response || '';
 
     if (!rawResponse) {
@@ -156,8 +179,10 @@ export async function POST(request: Request) {
     // Format the response for voice
     const voiceResponse = formatForVoice(rawResponse);
     console.log('[Vapi Webhook] Voice response length:', voiceResponse.length);
-    console.log('[Vapi Webhook] Voice response preview:', voiceResponse.substring(0, 150));
+    console.log('[Vapi Webhook] Voice response preview:', voiceResponse.substring(0, 200));
+    console.log('[Vapi Webhook] Full voice response:', voiceResponse);
 
+    // Return response in VAPI's expected format
     return NextResponse.json({
       response: voiceResponse,
     });

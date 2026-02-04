@@ -73,13 +73,17 @@ export async function POST(request: Request) {
       },
       assistant: {
         serverUrl: `${WEBHOOK_BASE_URL}/api/vapi/webhook`,
+        // When serverUrl is set, VAPI calls the webhook for ALL responses
+        // The model config below is only used as fallback if webhook fails
         model: {
           provider: 'openai',
           model: 'gpt-4o',
           messages: [
             {
               role: 'system',
-              content: VOICE_SYSTEM_PROMPT,
+              content: `You are Playmaker AI. You ONLY answer NBA questions using data from the webhook. 
+              If the webhook provides data, use ONLY that data. Never make up stats or scores.
+              If you don't have data from the webhook, say "I need to check the latest data for that."`,
             },
           ],
         },
