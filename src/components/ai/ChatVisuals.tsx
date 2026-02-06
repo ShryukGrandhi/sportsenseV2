@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { TopPlayerComparison } from './TopPlayerComparison';
 import { TeamComparisonCard } from './TeamComparisonVisual';
+import { EnhancedGameRecap } from './EnhancedGameRecap';
 
 // ============================================
 // TYPE DEFINITIONS
@@ -152,6 +153,21 @@ export interface GameRecapTopPlayer {
   plusMinus?: string;
 }
 
+export interface RecapTeamTotals {
+  points: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  fgm: number;
+  fga: number;
+  fg3m: number;
+  fg3a: number;
+  ftm: number;
+  fta: number;
+}
+
 export interface GameRecapVisual {
   gameId: string;
   homeTeam: {
@@ -170,6 +186,8 @@ export interface GameRecapVisual {
     record?: string;
     topPlayers: GameRecapTopPlayer[];
   };
+  homeTotals?: RecapTeamTotals;
+  awayTotals?: RecapTeamTotals;
   status: 'scheduled' | 'live' | 'halftime' | 'final';
   venue?: string;
   broadcast?: string;
@@ -996,7 +1014,37 @@ export function AIVisualRenderer({ visual }: { visual: AIVisualResponse }) {
     case 'game':
       return <GameCard game={visual.data} />;
     case 'gameRecap':
-      // NEW: Game recap with side-by-side top player comparison
+      // Enhanced game recap with top players + analytics charts
+      // Use EnhancedGameRecap when team totals are available, otherwise fallback to TopPlayerComparison
+      if (visual.data.homeTotals && visual.data.awayTotals) {
+        return (
+          <EnhancedGameRecap
+            gameId={visual.data.gameId}
+            homeTeam={{
+              name: visual.data.homeTeam.name,
+              abbreviation: visual.data.homeTeam.abbreviation,
+              score: visual.data.homeTeam.score,
+              logo: visual.data.homeTeam.logo,
+              record: visual.data.homeTeam.record,
+              topPlayers: visual.data.homeTeam.topPlayers,
+            }}
+            awayTeam={{
+              name: visual.data.awayTeam.name,
+              abbreviation: visual.data.awayTeam.abbreviation,
+              score: visual.data.awayTeam.score,
+              logo: visual.data.awayTeam.logo,
+              record: visual.data.awayTeam.record,
+              topPlayers: visual.data.awayTeam.topPlayers,
+            }}
+            homeTotals={visual.data.homeTotals}
+            awayTotals={visual.data.awayTotals}
+            status={visual.data.status}
+            venue={visual.data.venue}
+            date={visual.data.date}
+          />
+        );
+      }
+      // Fallback to original TopPlayerComparison
       return (
         <TopPlayerComparison
           gameId={visual.data.gameId}

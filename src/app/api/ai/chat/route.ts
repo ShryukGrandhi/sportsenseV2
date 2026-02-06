@@ -219,6 +219,21 @@ interface GameRecapTopPlayer {
 }
 
 // Game recap visual with side-by-side top player comparison
+interface RecapTeamTotals {
+  points: number;
+  rebounds: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  fgm: number;
+  fga: number;
+  fg3m: number;
+  fg3a: number;
+  ftm: number;
+  fta: number;
+}
+
 interface GameRecapVisual {
   gameId: string;
   homeTeam: {
@@ -237,6 +252,8 @@ interface GameRecapVisual {
     record?: string;
     topPlayers: GameRecapTopPlayer[];
   };
+  homeTotals: RecapTeamTotals;
+  awayTotals: RecapTeamTotals;
   status: 'scheduled' | 'live' | 'halftime' | 'final';
   venue?: string;
   broadcast?: string;
@@ -1048,7 +1065,31 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
               fga: Math.max(0, p.fga),
               plusMinus: p.plusMinus,
             }));
-            
+
+            // Calculate team totals from all players' stats
+            const calculateTeamTotals = (players: typeof boxscore.homePlayers): RecapTeamTotals => {
+              return players.reduce((totals, p) => ({
+                points: totals.points + Math.max(0, p.points),
+                rebounds: totals.rebounds + Math.max(0, p.rebounds),
+                assists: totals.assists + Math.max(0, p.assists),
+                steals: totals.steals + Math.max(0, p.steals),
+                blocks: totals.blocks + Math.max(0, p.blocks),
+                turnovers: totals.turnovers + Math.max(0, p.turnovers),
+                fgm: totals.fgm + Math.max(0, p.fgm),
+                fga: totals.fga + Math.max(0, p.fga),
+                fg3m: totals.fg3m + Math.max(0, p.fg3m),
+                fg3a: totals.fg3a + Math.max(0, p.fg3a),
+                ftm: totals.ftm + Math.max(0, p.ftm),
+                fta: totals.fta + Math.max(0, p.fta),
+              }), {
+                points: 0, rebounds: 0, assists: 0, steals: 0, blocks: 0, turnovers: 0,
+                fgm: 0, fga: 0, fg3m: 0, fg3a: 0, ftm: 0, fta: 0
+              });
+            };
+
+            const homeTotals = calculateTeamTotals(boxscore.homePlayers);
+            const awayTotals = calculateTeamTotals(boxscore.awayPlayers);
+
             return {
               type: 'gameRecap',
               data: {
@@ -1069,6 +1110,8 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
                   record: game.awayTeam.record,
                   topPlayers: awayTopPlayers,
                 },
+                homeTotals,
+                awayTotals,
                 status: 'final',
                 venue: game.venue,
                 broadcast: game.broadcast,
