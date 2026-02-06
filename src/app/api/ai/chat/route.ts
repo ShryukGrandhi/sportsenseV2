@@ -5,8 +5,31 @@ import { NextResponse } from 'next/server';
 import { GoogleGenAI } from "@google/genai";
 import { logger } from '@/lib/logger';
 import { fetchAllLiveData, buildAIContext, fetchStandings, fetchAllBoxscores, fetchScoresByDate, findGameByTeams, fetchGameBoxscore, LiveGameData } from '@/services/nba/live-data';
-import { fetchPlayerStats, fetchGameDetail, fetchPlayerCareerStats, fetchPlayerStatsForSeason, fetchTeamDetail } from '@/services/nba/espn-api';
+import { fetchPlayerStats, fetchGameDetail, fetchPlayerCareerStats, fetchPlayerStatsForSeason, fetchTeamDetail, fetchPlayerGameLogs, fetchTeamPreviousGames } from '@/services/nba/espn-api';
 import { extractDateFromMessage, parseNaturalDate } from '@/lib/date-parser';
+import { buildWinProbTimeline, findPivotalMoments, estimateWinProbability, getMinutesRemaining } from '@/lib/calculations/win-probability';
+import { detectScoringRuns, calculateLeadChanges, getLargestLead, buildScoreDiffTimeline } from '@/lib/calculations/momentum';
+import { estimatePossessions, estimatePace, pointsPerPossession, LEAGUE_AVG_PACE } from '@/lib/calculations/pace';
+import { projectPlayerStats, predictGame, calculateWatchScore } from '@/lib/calculations/projections';
+import { findApproachingMilestones } from '@/lib/calculations/milestones';
+import type {
+  WinProbabilityVisual,
+  GamePredictionVisual,
+  PlayerProjectionVisual,
+  MomentumChartVisual,
+  StreakAnalysisVisual,
+  ClutchPerformanceVisual,
+  HomeAwaySplitVisual,
+  ShotChartVisual,
+  LineupEffectivenessVisual,
+  PaceAnalysisVisual,
+  MilestoneTrackerVisual,
+  HistoricalComparisonVisual,
+  TrendingQuestionsVisual,
+  WatchPriorityVisual,
+  StoryCardVisual,
+  SmartAlertVisual,
+} from '@/types/chat-visuals';
 
 // ============================================
 // DATA VALIDATION LAYER
@@ -270,7 +293,24 @@ type AIVisualResponse =
   | { type: 'statsTable'; data: VisualStatsTable }
   | { type: 'leaders'; data: VisualLeadersData }
   | { type: 'comparison'; data: PlayerComparisonVisual }
-  | { type: 'teamComparison'; data: TeamComparisonVisual };
+  | { type: 'teamComparison'; data: TeamComparisonVisual }
+  // New visual types
+  | { type: 'winProbability'; data: WinProbabilityVisual }
+  | { type: 'gamePrediction'; data: GamePredictionVisual }
+  | { type: 'playerProjection'; data: PlayerProjectionVisual }
+  | { type: 'momentumChart'; data: MomentumChartVisual }
+  | { type: 'streakAnalysis'; data: StreakAnalysisVisual }
+  | { type: 'clutchPerformance'; data: ClutchPerformanceVisual }
+  | { type: 'homeAwaySplit'; data: HomeAwaySplitVisual }
+  | { type: 'shotChart'; data: ShotChartVisual }
+  | { type: 'lineupEffectiveness'; data: LineupEffectivenessVisual }
+  | { type: 'paceAnalysis'; data: PaceAnalysisVisual }
+  | { type: 'milestoneTracker'; data: MilestoneTrackerVisual }
+  | { type: 'historicalComparison'; data: HistoricalComparisonVisual }
+  | { type: 'trendingQuestions'; data: TrendingQuestionsVisual }
+  | { type: 'watchPriority'; data: WatchPriorityVisual }
+  | { type: 'story'; data: StoryCardVisual }
+  | { type: 'smartAlert'; data: SmartAlertVisual };
 
 // ============================================
 // PLAYER NAME MAPPINGS
@@ -387,6 +427,12 @@ type UserIntent =
   | { type: 'teamComparison'; team1: string; team2: string }
   | { type: 'team'; name: string }
   | { type: 'leaders'; category?: string; count?: number }
+  | { type: 'gameAnalytics'; gameId?: string; team?: string; analysisType: 'momentum' | 'winProbability' | 'pace' | 'story' | 'lineup' }
+  | { type: 'playerAnalytics'; name: string; analysisType: 'streak' | 'homeAway' | 'clutch' | 'shotChart' | 'milestone' | 'historical' | 'projection' }
+  | { type: 'gamePrediction'; team1?: string; team2?: string }
+  | { type: 'watchPriority' }
+  | { type: 'smartAlert' }
+  | { type: 'trendingQuestions' }
   | { type: 'general' };
 
 function detectUserIntent(message: string): UserIntent {
@@ -398,6 +444,157 @@ function detectUserIntent(message: string): UserIntent {
   if (gameIdMatch) {
     console.log(`[Intent] Detected specific game ID: ${gameIdMatch[1]}`);
     return { type: 'specificGame', gameId: gameIdMatch[1] };
+  }
+
+  // ============================================
+  // NEW INTENT DETECTION - Analytics & Advanced Queries
+  // These patterns are checked BEFORE existing ones for higher priority
+  // ============================================
+
+  // Helper: find a player name in the message
+  const findPlayerInMessage = (): string | null => {
+    for (const [nickname, fullName] of Object.entries(PLAYER_NAME_MAP)) {
+      if (lowerMsg.includes(nickname)) return fullName;
+    }
+    return null;
+  };
+
+  // Helper: find a team in the message
+  const findTeamInMessage = (): { key: string; id: string; name: string; abbreviation: string; logo: string } | null => {
+    for (const [key, team] of Object.entries(NBA_TEAMS)) {
+      if (lowerMsg.includes(key)) return { key, ...team };
+    }
+    return null;
+  };
+
+  // Helper: find two teams in the message (for predictions)
+  const findTwoTeams = (): { team1: string; team2: string } | null => {
+    const found: string[] = [];
+    for (const [key] of Object.entries(NBA_TEAMS)) {
+      if (lowerMsg.includes(key) && !found.includes(key)) {
+        found.push(key);
+        if (found.length === 2) break;
+      }
+    }
+    return found.length === 2 ? { team1: found[0], team2: found[1] } : null;
+  };
+
+  // Watch priority: "which game should I watch", "best game tonight", "must watch"
+  if (/which\s+game.*watch|best\s+game|must\s*watch|what\s+to\s+watch/i.test(lowerMsg)) {
+    console.log('[Intent] Detected watch priority query');
+    return { type: 'watchPriority' };
+  }
+
+  // Smart alert: "what's happening", "what's notable", "trending", "alerts"
+  if (/\balert\b|what'?s\s+happening|what'?s\s+notable|trending|what'?s\s+(?:new|going\s+on)/i.test(lowerMsg)) {
+    console.log('[Intent] Detected smart alert query');
+    return { type: 'smartAlert' };
+  }
+
+  // Game prediction: "predict", "who will win", "forecast", "expected score"
+  if (/\bpredict\b|who\s+will\s+win|forecast|expected\s+score/i.test(lowerMsg)) {
+    const teams = findTwoTeams();
+    console.log(`[Intent] Detected game prediction${teams ? ` for ${teams.team1} vs ${teams.team2}` : ''}`);
+    return { type: 'gamePrediction', team1: teams?.team1, team2: teams?.team2 };
+  }
+
+  // Win probability: "win probability", "win chance", "likely to win", "odds"
+  if (/win\s+probab|win\s+chance|likely\s+to\s+win|odds/i.test(lowerMsg)) {
+    const team = findTeamInMessage();
+    console.log(`[Intent] Detected win probability analysis`);
+    return { type: 'gameAnalytics', team: team?.abbreviation, analysisType: 'winProbability' };
+  }
+
+  // Momentum: "momentum", "scoring run", "comeback", "lead change", "flow"
+  if (/\bmomentum\b|scoring\s+run|comeback|lead\s+change|game\s+flow/i.test(lowerMsg)) {
+    const team = findTeamInMessage();
+    console.log(`[Intent] Detected momentum analysis`);
+    return { type: 'gameAnalytics', team: team?.abbreviation, analysisType: 'momentum' };
+  }
+
+  // Story: "story", "narrative", "what happened", "quarter by quarter"
+  if (/\bstory\b|narrative|what\s+happened|quarter\s+by\s+quarter/i.test(lowerMsg)) {
+    const team = findTeamInMessage();
+    console.log(`[Intent] Detected game story query`);
+    return { type: 'gameAnalytics', team: team?.abbreviation, analysisType: 'story' };
+  }
+
+  // Pace: "pace", "tempo", "possessions", "up and down"
+  if (/\bpace\b|\btempo\b|\bpossessions?\b|up\s+and\s+down/i.test(lowerMsg)) {
+    const team = findTeamInMessage();
+    console.log(`[Intent] Detected pace analysis`);
+    return { type: 'gameAnalytics', team: team?.abbreviation, analysisType: 'pace' };
+  }
+
+  // Lineup: "lineup", "bench", "starter", "depth", "rotation"
+  if (/\blineup\b|\bbench\b|\bstarter\b|\bdepth\b|\brotation\b/i.test(lowerMsg)) {
+    const team = findTeamInMessage();
+    console.log(`[Intent] Detected lineup analysis`);
+    return { type: 'gameAnalytics', team: team?.abbreviation, analysisType: 'lineup' };
+  }
+
+  // Player analytics - streak: "streak", "hot", "cold", "run", "doing lately", "recent form"
+  if (/\bstreak\b|\bhot\b|\bcold\b|doing\s+lately|recent\s+form/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected player streak analysis for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'streak' };
+    }
+    // If no player found but a team is mentioned, could be team streak - fall through to other checks
+  }
+
+  // Player analytics - home/away: "home vs away", "road", "split", "at home", "on the road"
+  if (/home\s+vs\s+away|road\s+split|\bat\s+home\b|on\s+the\s+road|home.away\s+split/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected home/away split for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'homeAway' };
+    }
+  }
+
+  // Player analytics - milestone: "milestone", "close to", "approaching", "career points"
+  if (/\bmilestone\b|close\s+to|approaching|career\s+points/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected milestone tracking for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'milestone' };
+    }
+  }
+
+  // Player analytics - historical: "compared to last season", "vs career", "improvement"
+  if (/compared\s+to\s+last\s+season|vs\s+career|improvement|year\s+over\s+year/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected historical comparison for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'historical' };
+    }
+  }
+
+  // Player analytics - projection: "projection", "how will play", "fantasy", "should I start"
+  if (/\bprojection\b|how\s+will.*play|fantasy|should\s+I\s+start/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected player projection for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'projection' };
+    }
+  }
+
+  // Player analytics - clutch: "clutch", "close game", "crunch time", "pressure"
+  if (/\bclutch\b|close\s+game|crunch\s+time|pressure/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected clutch performance for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'clutch' };
+    }
+  }
+
+  // Player analytics - shot chart: "shot chart", "shooting zone", "shot distribution"
+  if (/shot\s+chart|shooting\s+zone|shot\s+distribution/i.test(lowerMsg)) {
+    const player = findPlayerInMessage();
+    if (player) {
+      console.log(`[Intent] Detected shot chart for ${player}`);
+      return { type: 'playerAnalytics', name: player, analysisType: 'shotChart' };
+    }
   }
 
   // Check for player comparison first
@@ -1418,6 +1615,798 @@ async function generateVisualResponse(intent: UserIntent, liveData: any): Promis
         };
       }
 
+      // ============================================
+      // NEW VISUAL HANDLERS
+      // ============================================
+
+      case 'gameAnalytics': {
+        try {
+          // Find a live/recent game for the team
+          const games = liveData.games as LiveGameData[];
+          let targetGame: LiveGameData | undefined;
+
+          if (intent.gameId) {
+            targetGame = games.find(g => g.gameId === intent.gameId);
+          } else if (intent.team) {
+            targetGame = games.find(g =>
+              g.homeTeam.abbreviation === intent.team ||
+              g.awayTeam.abbreviation === intent.team
+            );
+          } else {
+            // Use first live/final game
+            targetGame = games.find(g => g.status === 'live' || g.status === 'halftime') || games.find(g => g.status === 'final');
+          }
+
+          if (!targetGame) return null;
+
+          const gameDetail = await fetchGameDetail(targetGame.gameId);
+          if (!gameDetail) return null;
+
+          const getTeamLogo = (abbr: string) =>
+            `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
+
+          // Momentum chart
+          if (intent.analysisType === 'momentum') {
+            const plays = gameDetail.plays.map(p => ({
+              sequenceNumber: p.sequenceNumber,
+              period: p.period,
+              clock: p.clock,
+              homeScore: p.homeScore,
+              awayScore: p.awayScore,
+              scoringPlay: p.scoringPlay,
+              description: p.description,
+            }));
+
+            const timeline = buildScoreDiffTimeline(plays);
+            const scoringRuns = detectScoringRuns(plays);
+            const leadChanges = calculateLeadChanges(plays);
+            const largestLead = getLargestLead(plays);
+
+            const momentumData: MomentumChartVisual = {
+              gameId: targetGame.gameId,
+              homeTeam: { name: gameDetail.homeTeam.displayName, abbreviation: gameDetail.homeTeam.abbreviation, logo: getTeamLogo(gameDetail.homeTeam.abbreviation) },
+              awayTeam: { name: gameDetail.awayTeam.displayName, abbreviation: gameDetail.awayTeam.abbreviation, logo: getTeamLogo(gameDetail.awayTeam.abbreviation) },
+              timeline,
+              scoringRuns,
+              leadChanges,
+              largestLead,
+              status: gameDetail.status === 'final' ? 'final' : gameDetail.status === 'halftime' ? 'halftime' : 'live',
+            };
+
+            return { type: 'momentumChart', data: momentumData };
+          }
+
+          // Win probability
+          if (intent.analysisType === 'winProbability') {
+            const plays = gameDetail.plays.map(p => ({
+              sequenceNumber: p.sequenceNumber,
+              period: p.period,
+              clock: p.clock,
+              homeScore: p.homeScore,
+              awayScore: p.awayScore,
+              scoringPlay: p.scoringPlay,
+              description: p.description,
+            }));
+
+            const timeline = buildWinProbTimeline(plays);
+            const pivotalMoments = findPivotalMoments(plays);
+            const lastPlay = plays[plays.length - 1];
+            const currentDiff = lastPlay ? lastPlay.homeScore - lastPlay.awayScore : 0;
+            const minutesLeft = lastPlay ? getMinutesRemaining(lastPlay.period, lastPlay.clock) : 48;
+            const currentProb = estimateWinProbability(currentDiff, minutesLeft);
+
+            const wpData: WinProbabilityVisual = {
+              gameId: targetGame.gameId,
+              homeTeam: { name: gameDetail.homeTeam.displayName, abbreviation: gameDetail.homeTeam.abbreviation, logo: getTeamLogo(gameDetail.homeTeam.abbreviation) },
+              awayTeam: { name: gameDetail.awayTeam.displayName, abbreviation: gameDetail.awayTeam.abbreviation, logo: getTeamLogo(gameDetail.awayTeam.abbreviation) },
+              currentProbability: currentProb,
+              timeline,
+              pivotalMoments,
+              status: gameDetail.status === 'final' ? 'final' : gameDetail.status === 'halftime' ? 'halftime' : 'live',
+            };
+
+            return { type: 'winProbability', data: wpData };
+          }
+
+          // Pace analysis
+          if (intent.analysisType === 'pace') {
+            const homeTotals = gameDetail.homeTotals || { fga: 0, fta: 0, turnovers: 0, fgm: 0, fg3m: 0, fg3a: 0, ftm: 0, points: gameDetail.homeScore };
+            const awayTotals = gameDetail.awayTotals || { fga: 0, fta: 0, turnovers: 0, fgm: 0, fg3m: 0, fg3a: 0, ftm: 0, points: gameDetail.awayScore };
+
+            const homePaceTotals = { ...homeTotals, points: gameDetail.homeScore, offReb: 0 };
+            const awayPaceTotals = { ...awayTotals, points: gameDetail.awayScore, offReb: 0 };
+
+            const homePossessions = estimatePossessions(homePaceTotals);
+            const awayPossessions = estimatePossessions(awayPaceTotals);
+            const homePace = estimatePace(homePaceTotals);
+            const awayPace = estimatePace(awayPaceTotals);
+            const homePpp = pointsPerPossession(gameDetail.homeScore, homePaceTotals);
+            const awayPpp = pointsPerPossession(gameDetail.awayScore, awayPaceTotals);
+
+            // Build scoring by quarter from play data
+            const scoringByQuarter: Array<{ quarter: string; homePoints: number; awayPoints: number }> = [];
+            for (let q = 1; q <= Math.max(gameDetail.period, 4); q++) {
+              const quarterPlays = gameDetail.plays.filter(p => p.period === q && p.scoringPlay);
+              const lastPlay = quarterPlays[quarterPlays.length - 1];
+              const firstPlay = quarterPlays[0];
+              const homeQPoints = lastPlay && firstPlay ? lastPlay.homeScore - (q > 1 ? (gameDetail.plays.filter(p => p.period === q - 1 && p.scoringPlay).pop()?.homeScore || 0) : 0) : 0;
+              const awayQPoints = lastPlay && firstPlay ? lastPlay.awayScore - (q > 1 ? (gameDetail.plays.filter(p => p.period === q - 1 && p.scoringPlay).pop()?.awayScore || 0) : 0) : 0;
+              scoringByQuarter.push({
+                quarter: q <= 4 ? `Q${q}` : `OT${q - 4}`,
+                homePoints: Math.max(0, homeQPoints),
+                awayPoints: Math.max(0, awayQPoints),
+              });
+            }
+
+            const paceData: PaceAnalysisVisual = {
+              gameId: targetGame.gameId,
+              homeTeam: { name: gameDetail.homeTeam.displayName, abbreviation: gameDetail.homeTeam.abbreviation, logo: getTeamLogo(gameDetail.homeTeam.abbreviation), pace: homePace },
+              awayTeam: { name: gameDetail.awayTeam.displayName, abbreviation: gameDetail.awayTeam.abbreviation, logo: getTeamLogo(gameDetail.awayTeam.abbreviation), pace: awayPace },
+              leagueAvgPace: LEAGUE_AVG_PACE,
+              scoringByQuarter,
+              totalPossessions: { home: Math.round(homePossessions), away: Math.round(awayPossessions) },
+              pointsPerPossession: { home: homePpp, away: awayPpp },
+            };
+
+            return { type: 'paceAnalysis', data: paceData };
+          }
+
+          // Game story
+          if (intent.analysisType === 'story') {
+            // Build quarter summaries
+            const quarters: StoryCardVisual['quarters'] = [];
+            for (let q = 1; q <= Math.max(gameDetail.period, 4); q++) {
+              const qPlays = gameDetail.plays.filter(p => p.period === q);
+              const scoringPlays = qPlays.filter(p => p.scoringPlay);
+              const lastPlay = scoringPlays[scoringPlays.length - 1];
+              const prevQLastPlay = q > 1 ? gameDetail.plays.filter(p => p.period === q - 1 && p.scoringPlay).pop() : null;
+
+              const homeQPts = lastPlay ? lastPlay.homeScore - (prevQLastPlay?.homeScore || 0) : 0;
+              const awayQPts = lastPlay ? lastPlay.awayScore - (prevQLastPlay?.awayScore || 0) : 0;
+
+              quarters.push({
+                quarter: q <= 4 ? `Q${q}` : `OT${q - 4}`,
+                summary: `${gameDetail.homeTeam.abbreviation} ${Math.max(0, homeQPts)} - ${gameDetail.awayTeam.abbreviation} ${Math.max(0, awayQPts)}`,
+                homePoints: Math.max(0, homeQPts),
+                awayPoints: Math.max(0, awayQPts),
+                keyPlay: scoringPlays.length > 0 ? scoringPlays[scoringPlays.length - 1].description : undefined,
+              });
+            }
+
+            // Find MVP (top scorer)
+            const allPlayers = [...gameDetail.homeStats, ...gameDetail.awayStats];
+            const mvpPlayer = allPlayers.reduce((best, p) => p.points > best.points ? p : best, allPlayers[0]);
+            const mvpTeam = gameDetail.homeStats.includes(mvpPlayer) ? gameDetail.homeTeam.abbreviation : gameDetail.awayTeam.abbreviation;
+
+            const winner = gameDetail.homeScore > gameDetail.awayScore ? gameDetail.homeTeam.displayName : gameDetail.awayTeam.displayName;
+            const loser = gameDetail.homeScore > gameDetail.awayScore ? gameDetail.awayTeam.displayName : gameDetail.homeTeam.displayName;
+
+            const storyData: StoryCardVisual = {
+              gameId: targetGame.gameId,
+              headline: `${winner} defeat ${loser} ${Math.max(gameDetail.homeScore, gameDetail.awayScore)}-${Math.min(gameDetail.homeScore, gameDetail.awayScore)}`,
+              homeTeam: { name: gameDetail.homeTeam.displayName, abbreviation: gameDetail.homeTeam.abbreviation, logo: getTeamLogo(gameDetail.homeTeam.abbreviation), score: gameDetail.homeScore },
+              awayTeam: { name: gameDetail.awayTeam.displayName, abbreviation: gameDetail.awayTeam.abbreviation, logo: getTeamLogo(gameDetail.awayTeam.abbreviation), score: gameDetail.awayScore },
+              quarters,
+              mvp: {
+                name: mvpPlayer?.player?.displayName || 'Unknown',
+                headshot: mvpPlayer?.player?.headshot,
+                team: mvpTeam,
+                points: mvpPlayer?.points || 0,
+                rebounds: mvpPlayer?.rebounds || 0,
+                assists: mvpPlayer?.assists || 0,
+              },
+              status: gameDetail.status === 'final' ? 'final' : gameDetail.status === 'halftime' ? 'halftime' : 'live',
+            };
+
+            return { type: 'story', data: storyData };
+          }
+
+          // Lineup effectiveness
+          if (intent.analysisType === 'lineup') {
+            const teamAbbr = intent.team || gameDetail.homeTeam.abbreviation;
+            const isHomeTeam = gameDetail.homeTeam.abbreviation === teamAbbr;
+            const teamStats = isHomeTeam ? gameDetail.homeStats : gameDetail.awayStats;
+            const teamInfo = isHomeTeam ? gameDetail.homeTeam : gameDetail.awayTeam;
+
+            const starters = teamStats.filter(p => p.starter).map(p => ({
+              name: p.player.displayName,
+              headshot: p.player.headshot,
+              points: p.points,
+              rebounds: p.rebounds,
+              assists: p.assists,
+              minutes: p.minutes,
+              plusMinus: p.plusMinus,
+            }));
+
+            const bench = teamStats.filter(p => !p.starter && parseInt(p.minutes) > 0).map(p => ({
+              name: p.player.displayName,
+              headshot: p.player.headshot,
+              points: p.points,
+              rebounds: p.rebounds,
+              assists: p.assists,
+              minutes: p.minutes,
+              plusMinus: p.plusMinus,
+            }));
+
+            const starterPoints = starters.reduce((s, p) => s + p.points, 0);
+            const benchPoints = bench.reduce((s, p) => s + p.points, 0);
+            const parsePM = (pm: string) => parseInt(pm) || 0;
+            const starterPlusMinus = starters.reduce((s, p) => s + parsePM(p.plusMinus), 0);
+            const benchPlusMinus = bench.reduce((s, p) => s + parsePM(p.plusMinus), 0);
+
+            const lineupData: LineupEffectivenessVisual = {
+              gameId: targetGame.gameId,
+              team: { name: teamInfo.displayName, abbreviation: teamInfo.abbreviation, logo: getTeamLogo(teamInfo.abbreviation) },
+              starters,
+              bench,
+              starterPoints,
+              benchPoints,
+              starterPlusMinus,
+              benchPlusMinus,
+            };
+
+            return { type: 'lineupEffectiveness', data: lineupData };
+          }
+
+          return null;
+        } catch (error) {
+          console.error('[Visual Response] Error generating gameAnalytics visual:', error);
+          return null;
+        }
+      }
+
+      case 'playerAnalytics': {
+        try {
+          const playerInfo = await searchPlayer(intent.name);
+          if (!playerInfo) return null;
+
+          const getTeamLogo = (abbr: string) =>
+            `https://a.espncdn.com/i/teamlogos/nba/500/${abbr.toLowerCase()}.png`;
+
+          // Streak analysis
+          if (intent.analysisType === 'streak') {
+            const gameLogs = await fetchPlayerGameLogs(playerInfo.id, 10);
+            if (gameLogs.length === 0) return null;
+
+            // Calculate streak
+            let streakType: 'W' | 'L' = gameLogs[0].result;
+            let streakCount = 0;
+            for (const game of gameLogs) {
+              if (game.result === streakType) streakCount++;
+              else break;
+            }
+
+            const wins = gameLogs.filter(g => g.result === 'W').length;
+            const losses = gameLogs.filter(g => g.result === 'L').length;
+            const avgPoints = gameLogs.reduce((s, g) => s + g.points, 0) / gameLogs.length;
+
+            const recentGames = gameLogs.map(g => ({
+              opponent: g.opponent,
+              opponentLogo: getTeamLogo(g.opponent.toLowerCase()),
+              result: g.result,
+              score: `${g.points} PTS`,
+              points: g.points,
+              date: g.date,
+              isHome: g.isHome,
+            }));
+
+            const trend: 'hot' | 'cold' | 'neutral' =
+              streakCount >= 3 && streakType === 'W' ? 'hot' :
+              streakCount >= 3 && streakType === 'L' ? 'cold' : 'neutral';
+
+            const streakData: StreakAnalysisVisual = {
+              subject: { name: playerInfo.name, type: 'player', headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254` },
+              currentStreak: { type: streakType, count: streakCount },
+              recentGames,
+              record: { wins, losses, last10: `${wins}-${losses}` },
+              trend,
+            };
+
+            return { type: 'streakAnalysis', data: streakData };
+          }
+
+          // Home/Away split
+          if (intent.analysisType === 'homeAway') {
+            const gameLogs = await fetchPlayerGameLogs(playerInfo.id, 30);
+            if (gameLogs.length === 0) return null;
+
+            const homeGames = gameLogs.filter(g => g.isHome);
+            const awayGames = gameLogs.filter(g => !g.isHome);
+
+            const calcAvg = (games: typeof gameLogs) => ({
+              games: games.length,
+              ppg: games.length > 0 ? Math.round(games.reduce((s, g) => s + g.points, 0) / games.length * 10) / 10 : 0,
+              rpg: games.length > 0 ? Math.round(games.reduce((s, g) => s + g.rebounds, 0) / games.length * 10) / 10 : 0,
+              apg: games.length > 0 ? Math.round(games.reduce((s, g) => s + g.assists, 0) / games.length * 10) / 10 : 0,
+              fgPct: games.length > 0 ? Math.round(games.reduce((s, g) => s + (g.fga > 0 ? g.fgm / g.fga * 100 : 0), 0) / games.length * 10) / 10 : 0,
+              fg3Pct: games.length > 0 ? Math.round(games.reduce((s, g) => s + (g.fg3a > 0 ? g.fg3m / g.fg3a * 100 : 0), 0) / games.length * 10) / 10 : 0,
+              record: `${games.filter(g => g.result === 'W').length}-${games.filter(g => g.result === 'L').length}`,
+            });
+
+            const home = calcAvg(homeGames);
+            const away = calcAvg(awayGames);
+
+            const diffs = [
+              { stat: 'PPG', homeDiff: home.ppg - away.ppg },
+              { stat: 'RPG', homeDiff: home.rpg - away.rpg },
+              { stat: 'APG', homeDiff: home.apg - away.apg },
+              { stat: 'FG%', homeDiff: home.fgPct - away.fgPct },
+            ];
+            const biggestDifference = diffs.reduce((max, d) => Math.abs(d.homeDiff) > Math.abs(max.homeDiff) ? d : max, diffs[0]);
+
+            const splitData: HomeAwaySplitVisual = {
+              player: {
+                name: playerInfo.name,
+                headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254`,
+                team: playerInfo.team,
+                teamLogo: playerInfo.teamLogo,
+              },
+              home,
+              away,
+              biggestDifference,
+            };
+
+            return { type: 'homeAwaySplit', data: splitData };
+          }
+
+          // Clutch performance
+          if (intent.analysisType === 'clutch') {
+            const gameLogs = await fetchPlayerGameLogs(playerInfo.id, 20);
+            const seasonStats = await fetchPlayerStats(playerInfo.id);
+
+            // Estimate clutch stats from game logs (simplified - real clutch requires play-by-play)
+            const avgPoints = gameLogs.length > 0 ? gameLogs.reduce((s, g) => s + g.points, 0) / gameLogs.length : 0;
+            const highScoring = gameLogs.filter(g => g.points > avgPoints * 1.2);
+
+            const clutchData: ClutchPerformanceVisual = {
+              player: {
+                name: playerInfo.name,
+                headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254`,
+                team: playerInfo.team,
+                teamLogo: playerInfo.teamLogo,
+              },
+              clutchStats: {
+                clutchPoints: Math.round(avgPoints * 0.15 * 10) / 10, // Estimated 4th quarter portion
+                clutchFgPct: seasonStats?.fgPct || 0,
+                clutchGames: highScoring.length,
+                totalCloseGames: Math.round(gameLogs.length * 0.4),
+                gameWinners: Math.round(highScoring.filter(g => g.result === 'W').length * 0.3),
+              },
+              clutchRating: Math.min(100, Math.round(50 + (highScoring.filter(g => g.result === 'W').length / Math.max(1, highScoring.length)) * 30 + avgPoints * 0.5)),
+              notableMoments: highScoring.slice(0, 3).map(g => ({
+                opponent: g.opponent,
+                date: g.date,
+                description: `${g.points} points on ${g.fgm}-${g.fga} shooting`,
+                points: g.points,
+              })),
+            };
+
+            return { type: 'clutchPerformance', data: clutchData };
+          }
+
+          // Shot chart
+          if (intent.analysisType === 'shotChart') {
+            const seasonStats = await fetchPlayerStats(playerInfo.id);
+            if (!seasonStats) return null;
+
+            // Estimate shot distribution from season stats (real shot chart needs shot-level data)
+            // Approximate FGA from PPG and FG% (PPG / ~2 points per FGA attempt)
+            const totalFga = seasonStats.pointsPerGame > 0 ? seasonStats.pointsPerGame / 1.1 : 15;
+            const totalFgm = seasonStats.fgPct > 0 ? (seasonStats.fgPct / 100) * totalFga : totalFga * 0.45;
+            // Estimate 3PT attempts (~30% of total FGA for a modern player)
+            const fg3a = totalFga * 0.3;
+            const fg3m = seasonStats.fg3Pct > 0 ? (seasonStats.fg3Pct / 100) * fg3a : fg3a * 0.35;
+
+            // Estimate zone distribution
+            const midMade = Math.max(0, totalFgm - fg3m - totalFgm * 0.45);
+            const midAtt = Math.max(0, totalFga - fg3a - totalFga * 0.45);
+            const paintMade = totalFgm * 0.45;
+            const paintAtt = totalFga * 0.45;
+
+            const shotChartData: ShotChartVisual = {
+              player: {
+                name: playerInfo.name,
+                headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254`,
+                team: playerInfo.team,
+                teamLogo: playerInfo.teamLogo,
+              },
+              zones: {
+                paint: { made: Math.round(paintMade * 10) / 10, attempted: Math.round(paintAtt * 10) / 10, pct: paintAtt > 0 ? Math.round(paintMade / paintAtt * 1000) / 10 : 0 },
+                midrange: { made: Math.round(midMade * 10) / 10, attempted: Math.round(midAtt * 10) / 10, pct: midAtt > 0 ? Math.round(midMade / midAtt * 1000) / 10 : 0 },
+                threePoint: { made: Math.round(fg3m * 10) / 10, attempted: Math.round(fg3a * 10) / 10, pct: fg3a > 0 ? Math.round(fg3m / fg3a * 1000) / 10 : 0 },
+              },
+              totals: {
+                fgm: Math.round(totalFgm * 10) / 10,
+                fga: Math.round(totalFga * 10) / 10,
+                fgPct: seasonStats.fgPct,
+                fg3m: Math.round(fg3m * 10) / 10,
+                fg3a: Math.round(fg3a * 10) / 10,
+                fg3Pct: seasonStats.fg3Pct,
+              },
+              isEstimated: true,
+            };
+
+            return { type: 'shotChart', data: shotChartData };
+          }
+
+          // Milestone tracker
+          if (intent.analysisType === 'milestone') {
+            const [seasonStats, careerStats] = await Promise.all([
+              fetchPlayerStats(playerInfo.id),
+              fetchPlayerCareerStats(playerInfo.id),
+            ]);
+
+            if (!careerStats) return null;
+
+            const career = {
+              points: (careerStats.pointsPerGame || 0) * (careerStats.gamesPlayed || 0),
+              rebounds: (careerStats.reboundsPerGame || 0) * (careerStats.gamesPlayed || 0),
+              assists: (careerStats.assistsPerGame || 0) * (careerStats.gamesPlayed || 0),
+              games: careerStats.gamesPlayed || 0,
+            };
+
+            const seasonAvg = {
+              ppg: seasonStats?.pointsPerGame || careerStats.pointsPerGame || 0,
+              rpg: seasonStats?.reboundsPerGame || careerStats.reboundsPerGame || 0,
+              apg: seasonStats?.assistsPerGame || careerStats.assistsPerGame || 0,
+              gamesPlayed: seasonStats?.gamesPlayed || careerStats.gamesPlayed || 0,
+            };
+
+            const milestones = findApproachingMilestones(career, seasonAvg);
+
+            const milestoneData: MilestoneTrackerVisual = {
+              player: {
+                name: playerInfo.name,
+                headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254`,
+                team: playerInfo.team,
+                teamLogo: playerInfo.teamLogo,
+              },
+              milestones,
+              careerTotals: career,
+            };
+
+            return { type: 'milestoneTracker', data: milestoneData };
+          }
+
+          // Historical comparison
+          if (intent.analysisType === 'historical') {
+            const currentYear = new Date().getFullYear();
+            const [currentStats, previousStats] = await Promise.all([
+              fetchPlayerStats(playerInfo.id),
+              fetchPlayerStatsForSeason(playerInfo.id, currentYear - 1),
+            ]);
+
+            if (!currentStats || !previousStats) return null;
+
+            const changes = [
+              { stat: 'PPG', current: currentStats.pointsPerGame, previous: previousStats.pointsPerGame },
+              { stat: 'RPG', current: currentStats.reboundsPerGame, previous: previousStats.reboundsPerGame },
+              { stat: 'APG', current: currentStats.assistsPerGame, previous: previousStats.assistsPerGame },
+              { stat: 'FG%', current: currentStats.fgPct, previous: previousStats.fgPct },
+              { stat: '3P%', current: currentStats.fg3Pct, previous: previousStats.fg3Pct },
+            ].map(c => ({
+              stat: c.stat,
+              current: c.current || 0,
+              previous: c.previous || 0,
+              change: Math.round(((c.current || 0) - (c.previous || 0)) * 10) / 10,
+              changePercent: (c.previous || 0) > 0 ? Math.round(((c.current || 0) - (c.previous || 0)) / (c.previous || 1) * 1000) / 10 : 0,
+              improved: (c.current || 0) > (c.previous || 0),
+            }));
+
+            const historicalData: HistoricalComparisonVisual = {
+              player: {
+                name: playerInfo.name,
+                headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254`,
+                team: playerInfo.team,
+                teamLogo: playerInfo.teamLogo,
+              },
+              currentSeason: {
+                year: `${currentYear}-${String(currentYear + 1).slice(-2)}`,
+                ppg: currentStats.pointsPerGame || 0,
+                rpg: currentStats.reboundsPerGame || 0,
+                apg: currentStats.assistsPerGame || 0,
+                fgPct: currentStats.fgPct || 0,
+                fg3Pct: currentStats.fg3Pct || 0,
+                gamesPlayed: currentStats.gamesPlayed || 0,
+              },
+              comparisonSeason: {
+                year: `${currentYear - 1}-${String(currentYear).slice(-2)}`,
+                ppg: previousStats.pointsPerGame || 0,
+                rpg: previousStats.reboundsPerGame || 0,
+                apg: previousStats.assistsPerGame || 0,
+                fgPct: previousStats.fgPct || 0,
+                fg3Pct: previousStats.fg3Pct || 0,
+                gamesPlayed: previousStats.gamesPlayed || 0,
+              },
+              changes,
+            };
+
+            return { type: 'historicalComparison', data: historicalData };
+          }
+
+          // Player projection
+          if (intent.analysisType === 'projection') {
+            const [seasonStats, gameLogs] = await Promise.all([
+              fetchPlayerStats(playerInfo.id),
+              fetchPlayerGameLogs(playerInfo.id, 10),
+            ]);
+
+            if (!seasonStats) return null;
+
+            const recentGames = gameLogs.map(g => ({
+              points: g.points,
+              rebounds: g.rebounds,
+              assists: g.assists,
+              opponent: g.opponent,
+              date: g.date,
+            }));
+
+            const seasonAvg = {
+              ppg: seasonStats.pointsPerGame || 0,
+              rpg: seasonStats.reboundsPerGame || 0,
+              apg: seasonStats.assistsPerGame || 0,
+              fgPct: seasonStats.fgPct || 0,
+              fg3Pct: seasonStats.fg3Pct || 0,
+              gamesPlayed: seasonStats.gamesPlayed || 0,
+            };
+
+            const projected = projectPlayerStats(seasonAvg, recentGames);
+
+            const projectionData: PlayerProjectionVisual = {
+              player: {
+                name: playerInfo.name,
+                headshot: `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${playerInfo.id}.png&w=350&h=254`,
+                team: playerInfo.team,
+                teamLogo: playerInfo.teamLogo,
+                position: playerInfo.position,
+              },
+              projectedStats: {
+                points: projected.points,
+                rebounds: projected.rebounds,
+                assists: projected.assists,
+              },
+              seasonAvg: { points: seasonAvg.ppg, rebounds: seasonAvg.rpg, assists: seasonAvg.apg },
+              recentTrend: recentGames.slice(0, 5).map(g => ({
+                game: g.opponent || 'Unknown',
+                points: g.points,
+                rebounds: g.rebounds,
+                assists: g.assists,
+              })),
+              confidence: projected.confidence,
+            };
+
+            return { type: 'playerProjection', data: projectionData };
+          }
+
+          return null;
+        } catch (error) {
+          console.error('[Visual Response] Error generating playerAnalytics visual:', error);
+          return null;
+        }
+      }
+
+      case 'gamePrediction': {
+        try {
+          // Find team data
+          let team1Info = intent.team1 ? NBA_TEAMS[intent.team1] : null;
+          let team2Info = intent.team2 ? NBA_TEAMS[intent.team2] : null;
+
+          // If no teams specified, use first upcoming/live game
+          if (!team1Info || !team2Info) {
+            const games = liveData.games as LiveGameData[];
+            const upcomingGame = games.find(g => g.status === 'scheduled') || games.find(g => g.status === 'live') || games[0];
+            if (!upcomingGame) return null;
+
+            // Find teams from NBA_TEAMS by abbreviation
+            team1Info = Object.values(NBA_TEAMS).find(t => t.abbreviation === upcomingGame.homeTeam.abbreviation) || null;
+            team2Info = Object.values(NBA_TEAMS).find(t => t.abbreviation === upcomingGame.awayTeam.abbreviation) || null;
+          }
+
+          if (!team1Info || !team2Info) return null;
+
+          const [team1Detail, team2Detail] = await Promise.all([
+            fetchTeamDetail(team1Info.id),
+            fetchTeamDetail(team2Info.id),
+          ]);
+
+          if (!team1Detail || !team2Detail) return null;
+
+          const homeRecord = { wins: team1Detail.record.wins, losses: team1Detail.record.losses, ppg: team1Detail.stats.ppg, oppg: team1Detail.stats.oppg };
+          const awayRecord = { wins: team2Detail.record.wins, losses: team2Detail.record.losses, ppg: team2Detail.stats.ppg, oppg: team2Detail.stats.oppg };
+
+          const prediction = predictGame(homeRecord, awayRecord);
+
+          // Build recent form strings from schedule
+          const buildForm = (recent: { result: string }[]) => {
+            return recent.slice(0, 5).map(g => g.result.startsWith('W') ? 'W' : 'L').join('-') || 'N/A';
+          };
+
+          const keyMatchups = [
+            { category: 'PPG', homeValue: team1Detail.stats.ppg.toFixed(1), awayValue: team2Detail.stats.ppg.toFixed(1), edge: team1Detail.stats.ppg > team2Detail.stats.ppg ? 'home' as const : team2Detail.stats.ppg > team1Detail.stats.ppg ? 'away' as const : 'even' as const },
+            { category: 'OPP PPG', homeValue: team1Detail.stats.oppg.toFixed(1), awayValue: team2Detail.stats.oppg.toFixed(1), edge: team1Detail.stats.oppg < team2Detail.stats.oppg ? 'home' as const : team2Detail.stats.oppg < team1Detail.stats.oppg ? 'away' as const : 'even' as const },
+            { category: 'FG%', homeValue: `${team1Detail.stats.fgPct.toFixed(1)}%`, awayValue: `${team2Detail.stats.fgPct.toFixed(1)}%`, edge: team1Detail.stats.fgPct > team2Detail.stats.fgPct ? 'home' as const : team2Detail.stats.fgPct > team1Detail.stats.fgPct ? 'away' as const : 'even' as const },
+            { category: '3P%', homeValue: `${team1Detail.stats.fg3Pct.toFixed(1)}%`, awayValue: `${team2Detail.stats.fg3Pct.toFixed(1)}%`, edge: team1Detail.stats.fg3Pct > team2Detail.stats.fg3Pct ? 'home' as const : team2Detail.stats.fg3Pct > team1Detail.stats.fg3Pct ? 'away' as const : 'even' as const },
+            { category: 'RPG', homeValue: team1Detail.stats.rpg.toFixed(1), awayValue: team2Detail.stats.rpg.toFixed(1), edge: team1Detail.stats.rpg > team2Detail.stats.rpg ? 'home' as const : team2Detail.stats.rpg > team1Detail.stats.rpg ? 'away' as const : 'even' as const },
+          ];
+
+          const predictionData: GamePredictionVisual = {
+            homeTeam: {
+              name: team1Detail.displayName,
+              abbreviation: team1Detail.abbreviation,
+              logo: team1Detail.logo,
+              record: `${team1Detail.record.wins}-${team1Detail.record.losses}`,
+              predictedScore: prediction.homePredictedScore,
+              recentForm: buildForm(team1Detail.schedule.recent),
+            },
+            awayTeam: {
+              name: team2Detail.displayName,
+              abbreviation: team2Detail.abbreviation,
+              logo: team2Detail.logo,
+              record: `${team2Detail.record.wins}-${team2Detail.record.losses}`,
+              predictedScore: prediction.awayPredictedScore,
+              recentForm: buildForm(team2Detail.schedule.recent),
+            },
+            homeWinProbability: prediction.homeWinProbability,
+            keyMatchups,
+          };
+
+          return { type: 'gamePrediction', data: predictionData };
+        } catch (error) {
+          console.error('[Visual Response] Error generating gamePrediction visual:', error);
+          return null;
+        }
+      }
+
+      case 'watchPriority': {
+        try {
+          const games = liveData.games as LiveGameData[];
+          if (games.length === 0) return null;
+
+          // Fetch team details for all games to calculate watch scores
+          const watchGames: WatchPriorityVisual['games'] = [];
+
+          for (const game of games) {
+            const homeTeamInfo = Object.values(NBA_TEAMS).find(t => t.abbreviation === game.homeTeam.abbreviation);
+            const awayTeamInfo = Object.values(NBA_TEAMS).find(t => t.abbreviation === game.awayTeam.abbreviation);
+
+            // Parse records
+            const parseRecord = (r?: string) => {
+              if (!r) return { wins: 0, losses: 0 };
+              const [w, l] = r.split('-').map(n => parseInt(n) || 0);
+              return { wins: w, losses: l };
+            };
+
+            const homeRec = parseRecord(game.homeTeam.record);
+            const awayRec = parseRecord(game.awayTeam.record);
+
+            const watchScore = calculateWatchScore(
+              { ...homeRec, ppg: 110, oppg: 108 },
+              { ...awayRec, ppg: 110, oppg: 108 }
+            );
+
+            const reasons: string[] = [];
+            const tags: string[] = [];
+
+            if (game.status === 'live' || game.status === 'halftime') {
+              tags.push('LIVE');
+              const diff = Math.abs(game.homeTeam.score - game.awayTeam.score);
+              if (diff <= 5) { reasons.push('Close game!'); tags.push('Close'); }
+            }
+
+            const homeWinPct = homeRec.wins / Math.max(1, homeRec.wins + homeRec.losses);
+            const awayWinPct = awayRec.wins / Math.max(1, awayRec.wins + awayRec.losses);
+            if (homeWinPct > 0.6 && awayWinPct > 0.6) { reasons.push('Both teams above .600'); tags.push('Top Matchup'); }
+            if (Math.abs(homeWinPct - awayWinPct) < 0.1) { reasons.push('Evenly matched'); tags.push('Competitive'); }
+
+            watchGames.push({
+              gameId: game.gameId,
+              homeTeam: { name: game.homeTeam.name, abbreviation: game.homeTeam.abbreviation, logo: `https://a.espncdn.com/i/teamlogos/nba/500/${game.homeTeam.abbreviation.toLowerCase()}.png`, record: game.homeTeam.record || '0-0' },
+              awayTeam: { name: game.awayTeam.name, abbreviation: game.awayTeam.abbreviation, logo: `https://a.espncdn.com/i/teamlogos/nba/500/${game.awayTeam.abbreviation.toLowerCase()}.png`, record: game.awayTeam.record || '0-0' },
+              watchScore,
+              reasons,
+              gameTime: game.clock || '',
+              status: game.status,
+              tags,
+            });
+          }
+
+          // Sort by watch score descending
+          watchGames.sort((a, b) => b.watchScore - a.watchScore);
+
+          return { type: 'watchPriority', data: { games: watchGames } };
+        } catch (error) {
+          console.error('[Visual Response] Error generating watchPriority visual:', error);
+          return null;
+        }
+      }
+
+      case 'smartAlert': {
+        try {
+          const games = liveData.games as LiveGameData[];
+          const alerts: SmartAlertVisual['alerts'] = [];
+          let alertId = 0;
+
+          for (const game of games) {
+            // Close game alert
+            if ((game.status === 'live' || game.status === 'halftime') && Math.abs(game.homeTeam.score - game.awayTeam.score) <= 5) {
+              alerts.push({
+                id: `alert-${alertId++}`,
+                priority: 'high',
+                type: 'streak',
+                title: `Close game: ${game.awayTeam.abbreviation} @ ${game.homeTeam.abbreviation}`,
+                description: `Score: ${game.awayTeam.score}-${game.homeTeam.score} (${game.clock || ''} ${game.period ? `Q${game.period}` : ''})`,
+                team: { name: game.homeTeam.name, abbreviation: game.homeTeam.abbreviation, logo: `https://a.espncdn.com/i/teamlogos/nba/500/${game.homeTeam.abbreviation.toLowerCase()}.png` },
+              });
+            }
+
+            // Blowout/upset detection
+            if (game.status === 'final') {
+              const diff = Math.abs(game.homeTeam.score - game.awayTeam.score);
+              if (diff >= 20) {
+                const winner = game.homeTeam.score > game.awayTeam.score ? game.homeTeam : game.awayTeam;
+                alerts.push({
+                  id: `alert-${alertId++}`,
+                  priority: 'medium',
+                  type: 'record',
+                  title: `Blowout: ${winner.abbreviation} wins by ${diff}`,
+                  description: `${game.awayTeam.abbreviation} ${game.awayTeam.score} - ${game.homeTeam.abbreviation} ${game.homeTeam.score}`,
+                  team: { name: winner.name, abbreviation: winner.abbreviation, logo: `https://a.espncdn.com/i/teamlogos/nba/500/${winner.abbreviation.toLowerCase()}.png` },
+                });
+              }
+            }
+          }
+
+          // Sort by priority
+          const priorityOrder = { high: 0, medium: 1, low: 2 };
+          alerts.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+
+          return { type: 'smartAlert', data: { alerts } };
+        } catch (error) {
+          console.error('[Visual Response] Error generating smartAlert visual:', error);
+          return null;
+        }
+      }
+
+      case 'trendingQuestions': {
+        try {
+          const games = liveData.games as LiveGameData[];
+          const questions: TrendingQuestionsVisual['questions'] = [];
+
+          // Generate contextual questions based on current games
+          if (games.length > 0) {
+            const liveGames = games.filter(g => g.status === 'live' || g.status === 'halftime');
+            const finalGames = games.filter(g => g.status === 'final');
+
+            if (liveGames.length > 0) {
+              const lg = liveGames[0];
+              questions.push({ text: `What's the momentum in ${lg.awayTeam.abbreviation} vs ${lg.homeTeam.abbreviation}?`, category: 'analytics' });
+              questions.push({ text: `Win probability for ${lg.homeTeam.abbreviation}?`, category: 'analytics' });
+            }
+
+            if (finalGames.length > 0) {
+              const fg = finalGames[0];
+              questions.push({ text: `Recap of ${fg.awayTeam.abbreviation} vs ${fg.homeTeam.abbreviation}`, category: 'game' });
+            }
+
+            questions.push({ text: 'Which game should I watch?', category: 'game' });
+            questions.push({ text: 'Who are the top scorers tonight?', category: 'player' });
+            questions.push({ text: 'Current playoff standings', category: 'standings' });
+          } else {
+            questions.push(
+              { text: 'Show me today\'s NBA games', category: 'game' },
+              { text: 'Current playoff standings', category: 'standings' },
+              { text: 'How is LeBron playing this season?', category: 'player' },
+              { text: 'Compare Jokic vs Embiid', category: 'player' },
+            );
+          }
+
+          return { type: 'trendingQuestions', data: { questions, context: `Based on ${games.length} games` } };
+        } catch (error) {
+          console.error('[Visual Response] Error generating trendingQuestions visual:', error);
+          return null;
+        }
+      }
+
       default:
         return null;
     }
@@ -1922,6 +2911,92 @@ export async function POST(request: Request) {
           visualContext += `Categories compared: ${teamCats.map(c => `${c.name}: ${c.team1Value} vs ${c.team2Value} (${c.winner === 'team1' ? team1.name : c.winner === 'team2' ? team2.name : 'Tie'} wins)`).join(', ')}\n`;
           visualContext += `${team1.name} leads ${t1Wins} categories, ${team2.name} leads ${t2Wins} categories.\n`;
           visualContext += 'Provide your analysis of how these teams match up. Discuss strengths, weaknesses, key advantages, and your prediction for a head-to-head matchup. The user can see the stat comparison.';
+          break;
+        case 'momentumChart':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a momentum chart for ${visualResponse.data.homeTeam.abbreviation} vs ${visualResponse.data.awayTeam.abbreviation}.\n`;
+          visualContext += `Lead changes: ${visualResponse.data.leadChanges}, Largest lead: ${visualResponse.data.largestLead.amount} by ${visualResponse.data.largestLead.team} team.\n`;
+          visualContext += `Scoring runs: ${visualResponse.data.scoringRuns.length}.\n`;
+          visualContext += 'Provide analysis of the game flow. Focus on key runs, momentum shifts, and turning points.';
+          break;
+        case 'winProbability':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a win probability chart.\n`;
+          visualContext += `Current home team win probability: ${visualResponse.data.currentProbability}%.\n`;
+          visualContext += `Pivotal moments: ${visualResponse.data.pivotalMoments.length}.\n`;
+          visualContext += 'Explain what the win probability means and highlight the most critical swings in the game.';
+          break;
+        case 'paceAnalysis':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees pace analysis.\n`;
+          visualContext += `Home pace: ${visualResponse.data.homeTeam.pace}, Away pace: ${visualResponse.data.awayTeam.pace}, League avg: ${visualResponse.data.leagueAvgPace}.\n`;
+          visualContext += `Points per possession - Home: ${visualResponse.data.pointsPerPossession.home}, Away: ${visualResponse.data.pointsPerPossession.away}.\n`;
+          visualContext += 'Analyze the pace of play and efficiency for both teams.';
+          break;
+        case 'story':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a game story card.\n`;
+          visualContext += `Headline: ${visualResponse.data.headline}\n`;
+          visualContext += `MVP: ${visualResponse.data.mvp.name} (${visualResponse.data.mvp.points} pts, ${visualResponse.data.mvp.rebounds} reb, ${visualResponse.data.mvp.assists} ast).\n`;
+          visualContext += 'Provide a narrative summary. The user can see the quarter breakdown.';
+          break;
+        case 'lineupEffectiveness':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees lineup data for ${visualResponse.data.team.name}.\n`;
+          visualContext += `Starters: ${visualResponse.data.starterPoints} pts (+/- ${visualResponse.data.starterPlusMinus}), Bench: ${visualResponse.data.benchPoints} pts (+/- ${visualResponse.data.benchPlusMinus}).\n`;
+          visualContext += 'Analyze the lineup effectiveness and bench contribution.';
+          break;
+        case 'streakAnalysis':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees streak analysis for ${visualResponse.data.subject.name}.\n`;
+          visualContext += `Current streak: ${visualResponse.data.currentStreak.count}${visualResponse.data.currentStreak.type}. Trend: ${visualResponse.data.trend}.\n`;
+          visualContext += `Recent record: ${visualResponse.data.record.last10}.\n`;
+          visualContext += 'Analyze the streak and what\'s driving the recent form.';
+          break;
+        case 'homeAwaySplit':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees home/away splits for ${visualResponse.data.player.name}.\n`;
+          visualContext += `Home: ${visualResponse.data.home.ppg} PPG, ${visualResponse.data.home.rpg} RPG. Away: ${visualResponse.data.away.ppg} PPG, ${visualResponse.data.away.rpg} RPG.\n`;
+          visualContext += `Biggest difference: ${visualResponse.data.biggestDifference.stat} (${visualResponse.data.biggestDifference.homeDiff > 0 ? '+' : ''}${visualResponse.data.biggestDifference.homeDiff.toFixed(1)} at home).\n`;
+          visualContext += 'Analyze the home/away performance differences.';
+          break;
+        case 'clutchPerformance':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees clutch performance data for ${visualResponse.data.player.name}.\n`;
+          visualContext += `Clutch rating: ${visualResponse.data.clutchRating}/100.\n`;
+          visualContext += 'Analyze their clutch performance. Note: these are estimates based on game log data.';
+          break;
+        case 'shotChart':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a shot chart for ${visualResponse.data.player.name}.\n`;
+          visualContext += `Paint: ${visualResponse.data.zones.paint.pct}%, Mid: ${visualResponse.data.zones.midrange.pct}%, 3PT: ${visualResponse.data.zones.threePoint.pct}%.\n`;
+          visualContext += 'Note: Shot zones are estimated from season averages. Analyze the shooting profile.';
+          break;
+        case 'milestoneTracker':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees milestone tracking for ${visualResponse.data.player.name}.\n`;
+          visualContext += `Milestones approaching: ${visualResponse.data.milestones.map(m => `${m.name} (${m.percentComplete}%)`).join(', ')}.\n`;
+          visualContext += 'Discuss the significance of these milestones and historical context.';
+          break;
+        case 'historicalComparison':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a season-over-season comparison for ${visualResponse.data.player.name}.\n`;
+          visualContext += `${visualResponse.data.currentSeason.year}: ${visualResponse.data.currentSeason.ppg} PPG vs ${visualResponse.data.comparisonSeason.year}: ${visualResponse.data.comparisonSeason.ppg} PPG.\n`;
+          visualContext += 'Analyze how the player has improved or changed from last season.';
+          break;
+        case 'playerProjection':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees projections for ${visualResponse.data.player.name}.\n`;
+          visualContext += `Projected: ${visualResponse.data.projectedStats.points.value} pts, ${visualResponse.data.projectedStats.rebounds.value} reb, ${visualResponse.data.projectedStats.assists.value} ast. Confidence: ${visualResponse.data.confidence}.\n`;
+          visualContext += 'Analyze the projection and whether they should be started in fantasy.';
+          break;
+        case 'gamePrediction':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a game prediction.\n`;
+          visualContext += `${visualResponse.data.homeTeam.abbreviation} ${visualResponse.data.homeTeam.predictedScore} vs ${visualResponse.data.awayTeam.abbreviation} ${visualResponse.data.awayTeam.predictedScore}.\n`;
+          visualContext += `Home win probability: ${visualResponse.data.homeWinProbability}%.\n`;
+          visualContext += 'Provide your prediction analysis. Note: this is a statistical model, discuss key factors.';
+          break;
+        case 'watchPriority':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees a watch priority ranking of ${visualResponse.data.games.length} games.\n`;
+          visualContext += `Top game: ${visualResponse.data.games[0]?.awayTeam.abbreviation} @ ${visualResponse.data.games[0]?.homeTeam.abbreviation} (score: ${visualResponse.data.games[0]?.watchScore}).\n`;
+          visualContext += 'Explain why the top-ranked games are the most watchable. Keep it exciting and opinionated.';
+          break;
+        case 'smartAlert':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees ${visualResponse.data.alerts.length} smart alerts.\n`;
+          visualContext += `High priority: ${visualResponse.data.alerts.filter(a => a.priority === 'high').length}.\n`;
+          visualContext += 'Summarize the most notable things happening across the league right now.';
+          break;
+        case 'trendingQuestions':
+          visualContext = `\n\nVISUAL DATA BEING SHOWN TO USER:\nThe user sees suggested questions they can ask.\n`;
+          visualContext += 'Briefly describe what\'s happening in the NBA tonight and encourage the user to explore these topics.';
           break;
       }
     }
