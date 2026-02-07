@@ -348,6 +348,7 @@ export function LiveGameCard({ game, onScoreUpdate }: LiveGameCardProps) {
               height={40}
               className="object-contain"
               unoptimized
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
             <div>
               <p className={`font-semibold ${awayWinning && isLive ? 'text-green-400' : 'text-white'}`}>
@@ -380,6 +381,7 @@ export function LiveGameCard({ game, onScoreUpdate }: LiveGameCardProps) {
               height={40}
               className="object-contain"
               unoptimized
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
             <div>
               <p className={`font-semibold ${homeWinning && isLive ? 'text-green-400' : 'text-white'}`}>

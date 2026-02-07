@@ -45,6 +45,7 @@ function GameCard({ game }: { game: LiveGameData }) {
               height={24}
               className="object-contain"
               unoptimized
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
             <span className="text-sm text-white font-medium">{game.awayTeam.abbreviation}</span>
           </div>
@@ -60,6 +61,7 @@ function GameCard({ game }: { game: LiveGameData }) {
               height={24}
               className="object-contain"
               unoptimized
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
             <span className="text-sm text-white font-medium">{game.homeTeam.abbreviation}</span>
           </div>

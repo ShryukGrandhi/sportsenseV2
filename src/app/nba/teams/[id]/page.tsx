@@ -26,7 +26,14 @@ function StatCard({ label, value, color = 'white' }: { label: string; value: str
 
 export default async function TeamDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const team = await fetchTeamDetail(id);
+
+  let team;
+  try {
+    team = await fetchTeamDetail(id);
+  } catch (e) {
+    console.error('Failed to fetch team detail:', e);
+    notFound();
+  }
 
   if (!team) {
     notFound();

@@ -18,6 +18,7 @@ function TeamLogo({ abbreviation, name, size = 32 }: { abbreviation: string; nam
       height={size}
       className="object-contain"
       unoptimized
+      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
     />
   );
 }

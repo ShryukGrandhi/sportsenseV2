@@ -96,8 +96,8 @@ function TeamCard({ team, record }: { team: ESPNTeam; record?: string }) {
 
 export default async function NBATeamsPage() {
   const [teams, standings] = await Promise.all([
-    fetchAllTeams(),
-    fetchStandings(),
+    fetchAllTeams().catch(() => [] as ESPNTeam[]),
+    fetchStandings().catch(() => ({ east: [], west: [], source: 'ESPN', sourceUrl: '' })),
   ]);
 
   // Create record lookup from standings

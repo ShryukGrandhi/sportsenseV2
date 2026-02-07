@@ -150,7 +150,20 @@ function GameCardSkeleton() {
 }
 
 export default async function NBAPage() {
-  const { games: todayGames, lastUpdated, source, sourceUrl } = await fetchLiveScores();
+  let todayGames: LiveGameData[] = [];
+  let lastUpdated = '';
+  let source = 'ESPN';
+  let sourceUrl = 'https://www.espn.com/nba/scoreboard';
+
+  try {
+    const result = await fetchLiveScores();
+    todayGames = result.games;
+    lastUpdated = result.lastUpdated;
+    source = result.source;
+    sourceUrl = result.sourceUrl;
+  } catch (e) {
+    console.error('Failed to fetch live scores:', e);
+  }
 
   const today = new Date();
   const tomorrow = new Date(today);
@@ -161,8 +174,8 @@ export default async function NBAPage() {
   const formatDateStr = (d: Date) => d.toISOString().split('T')[0].replace(/-/g, '');
 
   const [tomorrowData, dayAfterData] = await Promise.all([
-    fetchScoresByDate(formatDateStr(tomorrow)),
-    fetchScoresByDate(formatDateStr(dayAfter)),
+    fetchScoresByDate(formatDateStr(tomorrow)).catch(() => ({ games: [] as LiveGameData[], lastUpdated: '', source: 'ESPN', sourceUrl: '' })),
+    fetchScoresByDate(formatDateStr(dayAfter)).catch(() => ({ games: [] as LiveGameData[], lastUpdated: '', source: 'ESPN', sourceUrl: '' })),
   ]);
 
   const tomorrowGames = tomorrowData.games.map(g => ({ ...g, displayDate: 'Tomorrow' }));

@@ -58,6 +58,7 @@ function TeamRow({
             height={28}
             className="object-contain group-hover:scale-110 transition-transform flex-shrink-0"
             unoptimized
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
           <span className="font-medium text-[var(--text-primary)] text-sm truncate max-w-[100px]">{team.name}</span>
         </Link>
@@ -92,7 +93,20 @@ function TeamRow({
 }
 
 export default async function NBAStandingsPage() {
-  const { east, west, source, sourceUrl } = await fetchStandings();
+  let east: TeamStanding[] = [];
+  let west: TeamStanding[] = [];
+  let source = 'ESPN';
+  let sourceUrl = 'https://www.espn.com/nba/standings';
+
+  try {
+    const result = await fetchStandings();
+    east = result.east;
+    west = result.west;
+    source = result.source;
+    sourceUrl = result.sourceUrl;
+  } catch (e) {
+    console.error('Failed to fetch standings:', e);
+  }
 
   return (
     <div className="min-h-screen">

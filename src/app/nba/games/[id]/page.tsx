@@ -20,7 +20,14 @@ interface PageProps {
 
 export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const game = await fetchGameDetail(id);
+
+  let game;
+  try {
+    game = await fetchGameDetail(id);
+  } catch (e) {
+    console.error('Failed to fetch game detail:', e);
+    notFound();
+  }
 
   if (!game) {
     notFound();
@@ -28,8 +35,8 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   // Fetch previous games for both teams in parallel
   const [homePreviousGames, awayPreviousGames] = await Promise.all([
-    fetchTeamPreviousGames(game.homeTeam.id, 5),
-    fetchTeamPreviousGames(game.awayTeam.id, 5),
+    fetchTeamPreviousGames(game.homeTeam.id, 5).catch(() => []),
+    fetchTeamPreviousGames(game.awayTeam.id, 5).catch(() => []),
   ]);
 
   // Use team totals from API, or calculate from player stats as fallback

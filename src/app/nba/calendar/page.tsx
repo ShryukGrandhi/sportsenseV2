@@ -74,6 +74,7 @@ function GameMiniCard({ game }: { game: LiveGameData }) {
             height={14}
             className="object-contain flex-shrink-0"
             unoptimized
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
           <span className={`truncate ${isFinal && game.awayTeam.score > game.homeTeam.score ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
             {game.awayTeam.abbreviation}
@@ -90,6 +91,7 @@ function GameMiniCard({ game }: { game: LiveGameData }) {
             height={14}
             className="object-contain flex-shrink-0"
             unoptimized
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
           <span className={`truncate ${isFinal && game.homeTeam.score > game.awayTeam.score ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
             {game.homeTeam.abbreviation}
