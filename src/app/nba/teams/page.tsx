@@ -48,34 +48,35 @@ const TEAM_DIVISIONS: Record<string, { conference: string; division: string }> =
 
 function TeamCard({ team, record }: { team: ESPNTeam; record?: string }) {
   const division = TEAM_DIVISIONS[team.abbreviation];
-  
+
   return (
     <Link
       href={`/nba/teams/${team.id}`}
-      className="glass rounded-xl p-6 hover:bg-white/5 transition-all hover:scale-[1.02] group"
+      className="glass rounded-xl p-6 hover:bg-white/5 transition-all hover:scale-[1.02] group min-h-[44px]"
+      aria-label={`${team.displayName}${record ? `, record: ${record}` : ''}`}
     >
       <div className="flex flex-col items-center text-center">
-        <div 
+        <div
           className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
           style={{ backgroundColor: team.color ? `#${team.color}22` : 'rgba(255,255,255,0.05)' }}
         >
           <Image
             src={team.logo}
-            alt={team.displayName}
+            alt={`${team.displayName} logo`}
             width={60}
             height={60}
             className="object-contain"
             unoptimized
           />
         </div>
-        
-        <h3 className="font-bold text-white text-lg">{team.name}</h3>
-        <p className="text-sm text-white/50">{team.displayName}</p>
-        
+
+        <h3 className="font-bold text-[var(--text-primary)] text-lg">{team.name}</h3>
+        <p className="text-sm text-[var(--text-secondary)]">{team.displayName}</p>
+
         {record && (
-          <p className="text-sm text-white/40 mt-2">{record}</p>
+          <p className="text-sm text-[var(--text-tertiary)] mt-2">{record}</p>
         )}
-        
+
         {division && (
           <div className="mt-3 flex gap-2">
             <span className={`text-xs px-2 py-1 rounded-full ${
@@ -83,7 +84,7 @@ function TeamCard({ team, record }: { team: ESPNTeam; record?: string }) {
             }`}>
               {division.conference}
             </span>
-            <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/50">
+            <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-[var(--text-secondary)]">
               {division.division}
             </span>
           </div>
@@ -112,40 +113,40 @@ export default async function NBATeamsPage() {
   return (
     <div className="min-h-screen">
       <NBAHeader />
-      
-      <main className="container mx-auto px-4 py-6">
-        <Link 
+
+      <main id="main-content" className="container mx-auto px-4 py-6">
+        <Link
           href="/nba"
-          className="inline-flex items-center gap-2 text-white/60 hover:text-white text-sm mb-6 transition-colors"
+          className="inline-flex items-center gap-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm mb-6 transition-colors min-h-[44px]"
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-4 h-4" aria-hidden="true" />
           Back to NBA
         </Link>
 
         {/* Title */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-4">
-            <Users className="w-10 h-10 text-orange-400" />
+            <Users className="w-10 h-10 text-orange-400" aria-hidden="true" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-2">
+          <h1 id="page-title" className="text-4xl md:text-5xl font-bold mb-2 font-display">
             <span className="gradient-text-orange">NBA</span>
-            <span className="text-white"> Teams</span>
+            <span className="text-[var(--text-primary)]"> TEAMS</span>
           </h1>
-          <p className="text-white/60">All 30 NBA franchises</p>
+          <p className="text-[var(--text-secondary)]">All 30 NBA franchises</p>
         </div>
 
         {/* Eastern Conference */}
-        <section className="mb-12">
+        <section aria-labelledby="east-conf-heading" className="mb-12">
           <div className="flex items-center gap-3 mb-6">
-            <div className="h-px flex-1 bg-gradient-to-r from-blue-500/50 to-transparent" />
-            <h2 className="text-xl font-bold text-blue-400">Eastern Conference</h2>
-            <div className="h-px flex-1 bg-gradient-to-l from-blue-500/50 to-transparent" />
+            <div className="h-px flex-1 bg-gradient-to-r from-blue-500/50 to-transparent" aria-hidden="true" />
+            <h2 id="east-conf-heading" className="text-xl font-bold text-blue-400">Eastern Conference</h2>
+            <div className="h-px flex-1 bg-gradient-to-l from-blue-500/50 to-transparent" aria-hidden="true" />
           </div>
-          
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {eastTeams.map(team => (
-              <TeamCard 
-                key={team.id} 
+              <TeamCard
+                key={team.id}
                 team={team}
                 record={recordLookup[team.abbreviation]}
               />
@@ -154,17 +155,17 @@ export default async function NBATeamsPage() {
         </section>
 
         {/* Western Conference */}
-        <section className="mb-12">
+        <section aria-labelledby="west-conf-heading" className="mb-12">
           <div className="flex items-center gap-3 mb-6">
-            <div className="h-px flex-1 bg-gradient-to-r from-orange-500/50 to-transparent" />
-            <h2 className="text-xl font-bold text-orange-400">Western Conference</h2>
-            <div className="h-px flex-1 bg-gradient-to-l from-orange-500/50 to-transparent" />
+            <div className="h-px flex-1 bg-gradient-to-r from-orange-500/50 to-transparent" aria-hidden="true" />
+            <h2 id="west-conf-heading" className="text-xl font-bold text-orange-400">Western Conference</h2>
+            <div className="h-px flex-1 bg-gradient-to-l from-orange-500/50 to-transparent" aria-hidden="true" />
           </div>
-          
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {westTeams.map(team => (
-              <TeamCard 
-                key={team.id} 
+              <TeamCard
+                key={team.id}
                 team={team}
                 record={recordLookup[team.abbreviation]}
               />
@@ -173,36 +174,37 @@ export default async function NBATeamsPage() {
         </section>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <section aria-labelledby="team-stats-heading" className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <h2 id="team-stats-heading" className="sr-only">Team Statistics</h2>
           <div className="glass rounded-xl p-4 text-center">
-            <p className="text-3xl font-bold text-white">{teams.length}</p>
-            <p className="text-sm text-white/50">Total Teams</p>
+            <p className="text-3xl font-bold text-[var(--text-primary)]">{teams.length}</p>
+            <p className="text-sm text-[var(--text-secondary)]">Total Teams</p>
           </div>
           <div className="glass rounded-xl p-4 text-center">
             <p className="text-3xl font-bold text-blue-400">{eastTeams.length}</p>
-            <p className="text-sm text-white/50">Eastern</p>
+            <p className="text-sm text-[var(--text-secondary)]">Eastern</p>
           </div>
           <div className="glass rounded-xl p-4 text-center">
             <p className="text-3xl font-bold text-orange-400">{westTeams.length}</p>
-            <p className="text-sm text-white/50">Western</p>
+            <p className="text-sm text-[var(--text-secondary)]">Western</p>
           </div>
           <div className="glass rounded-xl p-4 text-center">
             <p className="text-3xl font-bold text-green-400">6</p>
-            <p className="text-sm text-white/50">Divisions</p>
+            <p className="text-sm text-[var(--text-secondary)]">Divisions</p>
           </div>
-        </div>
+        </section>
 
         {/* Source Footer */}
-        <div className="mt-8 text-center">
-          <a 
+        <footer role="contentinfo" className="mt-8 text-center">
+          <a
             href="https://www.espn.com/nba/teams"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 text-white/60 hover:text-white hover:bg-white/10 text-sm transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/10 text-sm transition-colors min-h-[44px]"
           >
-            📊 View on ESPN <ExternalLink className="w-4 h-4" />
+            <span aria-hidden="true">📊</span> View on ESPN <ExternalLink className="w-4 h-4" aria-hidden="true" />
           </a>
-        </div>
+        </footer>
       </main>
     </div>
   );
