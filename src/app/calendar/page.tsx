@@ -3,8 +3,8 @@
 
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Filter, RefreshCw, ExternalLink, Calendar } from 'lucide-react';
-import Image from 'next/image';
 import { fetchLiveScores, fetchScoresForDateRange, type LiveGameData } from '@/services/nba/live-data';
+import { TeamLogo } from '@/components/ui/TeamLogo';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60; // Revalidate every minute
@@ -38,14 +38,10 @@ function GameCard({ game }: { game: LiveGameData }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Image
-              src={`https://a.espncdn.com/i/teamlogos/nba/500/${game.awayTeam.abbreviation.toLowerCase()}.png`}
+            <TeamLogo
+              abbreviation={game.awayTeam.abbreviation}
               alt={game.awayTeam.name}
-              width={24}
-              height={24}
-              className="object-contain"
-              unoptimized
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              size={24}
             />
             <span className="text-sm text-white font-medium">{game.awayTeam.abbreviation}</span>
           </div>
@@ -54,14 +50,10 @@ function GameCard({ game }: { game: LiveGameData }) {
         
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Image
-              src={`https://a.espncdn.com/i/teamlogos/nba/500/${game.homeTeam.abbreviation.toLowerCase()}.png`}
+            <TeamLogo
+              abbreviation={game.homeTeam.abbreviation}
               alt={game.homeTeam.name}
-              width={24}
-              height={24}
-              className="object-contain"
-              unoptimized
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              size={24}
             />
             <span className="text-sm text-white font-medium">{game.homeTeam.abbreviation}</span>
           </div>

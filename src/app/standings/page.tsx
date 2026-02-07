@@ -3,25 +3,13 @@
 
 import Link from 'next/link';
 import { ChevronLeft, Trophy, RefreshCw, ExternalLink } from 'lucide-react';
-import Image from 'next/image';
 import { fetchStandings } from '@/services/nba/live-data';
+import { TeamLogo } from '@/components/ui/TeamLogo';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60; // Revalidate every minute
 
-function TeamLogo({ abbreviation, name, size = 32 }: { abbreviation: string; name: string; size?: number }) {
-  return (
-    <Image
-      src={`https://a.espncdn.com/i/teamlogos/nba/500/${abbreviation.toLowerCase()}.png`}
-      alt={name}
-      width={size}
-      height={size}
-      className="object-contain"
-      unoptimized
-      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-    />
-  );
-}
+// TeamLogo imported from @/components/ui/TeamLogo
 
 interface PageProps {
   searchParams: Promise<{ sport?: string }>;

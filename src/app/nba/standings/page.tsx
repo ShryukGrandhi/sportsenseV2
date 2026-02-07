@@ -1,8 +1,8 @@
 // NBA Standings Page - Live standings from ESPN
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { ChevronLeft, Trophy, TrendingUp, TrendingDown, Minus, ExternalLink } from 'lucide-react';
+import { TeamLogo } from '@/components/ui/TeamLogo';
 import { NBAHeader } from '@/components/nba/NBAHeader';
 import { fetchStandings, type TeamStanding } from '@/services/nba/live-data';
 
@@ -51,15 +51,7 @@ function TeamRow({
           href={`/nba/teams/${team.abbreviation.toLowerCase()}`}
           className="flex items-center gap-2 hover:text-orange-400 transition-colors min-h-[44px]"
         >
-          <Image
-            src={`https://a.espncdn.com/i/teamlogos/nba/500/${team.abbreviation.toLowerCase()}.png`}
-            alt={`${team.name} logo`}
-            width={28}
-            height={28}
-            className="object-contain group-hover:scale-110 transition-transform flex-shrink-0"
-            unoptimized
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
+          <TeamLogo abbreviation={team.abbreviation} alt={`${team.name} logo`} size={28} className="object-contain group-hover:scale-110 transition-transform flex-shrink-0" />
           <span className="font-medium text-[var(--text-primary)] text-sm truncate max-w-[100px]">{team.name}</span>
         </Link>
       </td>

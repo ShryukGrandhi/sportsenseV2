@@ -6,8 +6,8 @@ import Link from 'next/link';
 import { NBAHeader } from '@/components/nba/NBAHeader';
 import { GameChatWidget } from '@/components/ai/GameChatWidget';
 import { ChevronLeft, Calendar, TrendingUp, ExternalLink, ChevronRight } from 'lucide-react';
-import Image from 'next/image';
 import { fetchLiveScores, fetchScoresByDate, type LiveGameData } from '@/services/nba/live-data';
+import { TeamLogo } from '@/components/ui/TeamLogo';
 import { LiveScoreboard } from '@/components/games/LiveScoreboard';
 
 export const dynamic = 'force-dynamic';
@@ -58,15 +58,7 @@ function StaticGameCard({ game }: { game: LiveGameData & { displayDate?: string 
         isFinal && game.awayTeam.score > game.homeTeam.score ? 'opacity-100' : isFinal ? 'opacity-60' : ''
       }`}>
         <div className="flex items-center gap-3">
-          <Image
-            src={`https://a.espncdn.com/i/teamlogos/nba/500/${game.awayTeam.abbreviation.toLowerCase()}.png`}
-            alt=""
-            width={40}
-            height={40}
-            className="object-contain"
-            unoptimized
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
+          <TeamLogo abbreviation={game.awayTeam.abbreviation} size={40} />
           <div>
             <p className="font-semibold text-[var(--text-primary)]">{game.awayTeam.abbreviation}</p>
             <p className="text-xs text-[var(--text-tertiary)]">{game.awayTeam.record}</p>
@@ -84,15 +76,7 @@ function StaticGameCard({ game }: { game: LiveGameData & { displayDate?: string 
         isFinal && game.homeTeam.score > game.awayTeam.score ? 'opacity-100' : isFinal ? 'opacity-60' : ''
       }`}>
         <div className="flex items-center gap-3">
-          <Image
-            src={`https://a.espncdn.com/i/teamlogos/nba/500/${game.homeTeam.abbreviation.toLowerCase()}.png`}
-            alt=""
-            width={40}
-            height={40}
-            className="object-contain"
-            unoptimized
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
+          <TeamLogo abbreviation={game.homeTeam.abbreviation} size={40} />
           <div>
             <p className="font-semibold text-[var(--text-primary)]">{game.homeTeam.abbreviation}</p>
             <p className="text-xs text-[var(--text-tertiary)]">{game.homeTeam.record}</p>

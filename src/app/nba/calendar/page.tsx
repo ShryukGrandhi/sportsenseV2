@@ -2,8 +2,8 @@
 // Default: Shows the previous 7 days with clear date headers
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Calendar, ExternalLink, LayoutGrid, List } from 'lucide-react';
+import { TeamLogo } from '@/components/ui/TeamLogo';
 import { NBAHeader } from '@/components/nba/NBAHeader';
 import { fetchScoresByDate, fetchScoresForDateRange, type LiveGameData } from '@/services/nba/live-data';
 import { WeekView, type WeekViewGame } from '@/components/calendar/WeekView';
@@ -67,15 +67,7 @@ function GameMiniCard({ game }: { game: LiveGameData }) {
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
-          <Image
-            src={`https://a.espncdn.com/i/teamlogos/nba/500/${game.awayTeam.abbreviation.toLowerCase()}.png`}
-            alt={`${game.awayTeam.abbreviation} logo`}
-            width={14}
-            height={14}
-            className="object-contain flex-shrink-0"
-            unoptimized
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
+          <TeamLogo abbreviation={game.awayTeam.abbreviation} alt={`${game.awayTeam.abbreviation} logo`} size={14} className="object-contain flex-shrink-0" />
           <span className={`truncate ${isFinal && game.awayTeam.score > game.homeTeam.score ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
             {game.awayTeam.abbreviation}
           </span>
@@ -84,15 +76,7 @@ function GameMiniCard({ game }: { game: LiveGameData }) {
       </div>
       <div className="flex items-center justify-between gap-1 mt-0.5">
         <div className="flex items-center gap-1 min-w-0">
-          <Image
-            src={`https://a.espncdn.com/i/teamlogos/nba/500/${game.homeTeam.abbreviation.toLowerCase()}.png`}
-            alt={`${game.homeTeam.abbreviation} logo`}
-            width={14}
-            height={14}
-            className="object-contain flex-shrink-0"
-            unoptimized
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
+          <TeamLogo abbreviation={game.homeTeam.abbreviation} alt={`${game.homeTeam.abbreviation} logo`} size={14} className="object-contain flex-shrink-0" />
           <span className={`truncate ${isFinal && game.homeTeam.score > game.awayTeam.score ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
             {game.homeTeam.abbreviation}
           </span>
