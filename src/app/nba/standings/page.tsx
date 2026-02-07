@@ -122,7 +122,7 @@ export default async function NBAStandingsPage() {
             <span className="gradient-text-orange">NBA</span>
             <span className="text-[var(--text-primary)]"> STANDINGS</span>
           </h1>
-          <p className="text-[var(--text-secondary)]">2024-25 Regular Season</p>
+          <p className="text-[var(--text-secondary)]">2025-26 Regular Season</p>
 
           {/* Source */}
           <div className="mt-4">
